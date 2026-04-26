@@ -134,11 +134,13 @@
     - US2: Como usuario, quiero que la aplicación inicie sesión por mi, asistiéndome solo en caso de requerir captcha.
   - Prompt para el Agente (Fase 1 - Setup & Session Manager):
 "Actúa como Senior Python Engineer. Construye 'Biting Lobster' usando Clean Architecture: 
-    - [] Crea entorno e instala flet, playwright, playwright-stealth, python-dotenv. Estructura: /core, /ui, /data, /domain.
+    - [] Crea entorno e instala flet, playwright, playwright-stealth, python-dotenv. Guarda en un script llamado "setup-windows" para recrear el entorno en caso de ser necesario en Windows.
+    - [] Estructura de carpetas: /core, /ui, /data, /domain. 
     - [] Implementa SessionManager.py en /data. Usa Playwright para abrir Chrome visible (headless=False).
     - [] Navega a la URL de tickets de FIFA. El script debe esperar a que el usuario haga login manualmente (resolviendo captchas si los hay).
-    - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en un archivo local session.json. NUNCA pidas ni guardes credenciales en variables.
-- **Epic 2: Configuración, UI y Sistema (Dashboard)**
+    - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en session.json local. NO guardes credenciales en texto plano..
+- **Epic 2: Onboarding, UI y Control Geográfico**
+
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
     - US7: Como usuario, quiero poder consultar qué está haciendo la app (estatus) y ser notificado de problemas.
@@ -146,34 +148,50 @@
   - Prompt para el Agente (Fase 2 - UI & Settings):
 "Implementa la capa de UI con Flet (Material 3).
     - [] Crea ConfigRepository.py para guardar selecciones en config.yaml local.
-    - [] Crea la vista de Configuración: Dropdown de equipos (usa IDs del HTML de FIFA), Límite de precio y Token de Telegram.
-    - [] Crea el Dashboard Principal: Añade un componente LogConsole (scrollable) para mostrar el estatus de la app en tiempo real.
-    - [] Implementa una función utilitaria para Windows (modificando el registro de HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run o carpeta Startup) que permita arrancar el .exe al encender la PC (opcional por toggle)."
+    - [] Implementa un chequeo Geográfico inicial (usa una API gratuita como ip-api.com o la zona horaria del sistema). Si no es MX o US, muestra un error y bloquea la app.
+    - [] Crea la vista OnboardingWizard: Pantalla 1 (Aviso de Privacidad y Disclaimer legal explícito), Pantalla 2 (Login/Captura de Sesión), Pantalla 3 (Selección de País Dropdown de equipos (usa IDs del HTML de FIFA), Límite de precio y Token de Telegram).
+    - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema (Startup registry hook en Windows modificando el registro de HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run o carpeta Startup) que permita arrancar el .exe al encender la PC (opcional por toggle).
 - **Epic 3: Motor de Cacería (Hunter Algorithm)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
     - US7: Como usuario, quiero poder consultar qué está haciendo la app (estatus) y ser notificado de problemas.
     - US9: Como usuario, quiero que la aplicación inicie automáticamente al iniciar el sistema operativo.
   - Prompt para el Agente (Fase 2 - UI & Settings): "Implementa la capa de UI con Flet (Material 3).
+    - [] Implementa HunterService.py en /core usando asyncio.
     - [] Inicia Playwright con stealth y carga session.json. Usa headless=True.
     - [] Navega a la URL de la tienda. Implementa interceptación XHR para leer las respuestas JSON de disponibilidad.
     - [] Usa un 'Jitter' (retraso aleatorio gaussiano) entre peticiones para evitar baneos.
     - [] Al encontrar disponibilidad, navega al detalle del asiento. Selecciona 'Reservar el mejor sitio', intenta Categoría 1, cantidad 1.
-    - [] Busca el botón con id book y haz un clic simulado con coordenadas humanizadas.
+    - [] Busca el botón con id="book" y haz un clic simulado con coordenadas humanizadas y emite evento de 'Boleto Asegurado'.
 - **Epic 4: Notificaciones y Handoff (Checkout)**
   - Historias de Usuario cubiertas:
     - US5: Como usuario, quiero que la app me notifique en Telegram y sistema cuando agregue un boleto, dando acceso al carrito.
     - US6: Como usuario, quiero que al ir a revisar el carrito, la app me entregue el control para concluir la compra por mi cuenta.
   - Prompt para el Agente (Fase 4 - Notifiers & Handoff): "Implementa el sistema de notificaciones y el paso de control.
     - [] Crea TelegramNotifier.py y SystemTrayNotifier.py (usa plyer para notificaciones nativas de OS).
-    - [] Cuando HunterService confirme el clic de añadir al carrito, dispara la notificación indicando equipo, precio en formato $XX.XX (conviertiendo de centavos) y urgencia.
-    - [] Handoff: Inmediatamente después de agregar al carrito, detén el monitoreo. Pasa el contexto de Playwright a headless=False (haz la ventana visible) para que el usuario tome el mouse, ingrese sus datos bancarios y pague de forma segura.
+    - [] Cuando HunterService confirme el clic de añadir al carrito, dispara la notificación indicando equipo, precio en formato $XX.XX (conviertiendo de centavos) y urgencia (haz la ventana visible).
+    - [] Handoff: Inmediatamente después de agregar al carrito, detén el monitoreo. Pasa el contexto de Playwright a headless=False para que el usuario tome el mouse, ingrese sus datos bancarios y pague de forma segura.
+    - [] Actualiza el contador tickets_secured en config.yaml y persiste el cambio."
 - **Epic 5: Telemetría, Control de Errores y Monetización**
   - Historias de Usuario cubiertas:
     - US8: Como usuario, quiero poder agradecer con un donativo para conseguir más boletos.
     - US10: Como desarrollador, quiero que la app reporte incidencias remotas.
     - US11: Como desarrollador, quiero que registre información analítica básica.
-  - Prompt para el Agente (Fase 5 - Resiliencia y Analytics): "Finaliza los requerimientos de seguridad, métricas y negocio.
-    - [] Integra Sentry-sdk para reporte de incidencias remotas (errores silenciosos) y telemetría muy básica (solo eventos como 'Instalación', 'Cacería Iniciada', 'Boleto Encontrado' para respetar privacidad).
+  - Prompt para el Agente (Fase 5 - Resiliencia y Analytics): "Finaliza los requerimientos de seguridad, negocio y monetización en la UI.
+    - [] Si tickets_secured == 1, muestra un Paywall en la UI con opciones de pago nativas (enlaces a Buy Me a Coffee, Stripe y PayPal)
+    - [] Implementa un chequeo a un endpoint de control remoto (ej. un JSON en un Gist de GitHub o Supabase) usando un ID único de hardware. Si el ID está en la lista negra, lanza un error de 'Licencia Revocada'.
+    - [] Limita estrictamente: Si tickets_secured >= 13, bloquea permanentemente la app para ese usuario mostrando mensaje de límite alcanzado. Permitir borrar cuenta local. Bloquea nuevos intentos de cacería indicando el límite alcanzado.  
     - [] Si HunterService detecta un HTTP 403 o Captcha, detén el proceso, notifica en la consola de la UI y pide resolución manual.
-    - [] Lógica de Monetización: Implementa un contador local en config.yaml. Si tickets_secured == 1, muestra un Dialog en Flet ofreciendo links de 'BuyMeACoffee' o pago en Crypto. Hasta que el backend no valide el pago (o el usuario ingrese un código de desbloqueo), bloquea nuevos intentos de cacería indicando el límite alcanzado.  
+- **Epic 6: Telemetría, Control de Errores y Monetización**
+  Cubriendo: Reporte de incidencias (US10), Analítica (US11), Pruebas Unitarias.
+  - Prompt para el Agente (Fase 6 - Observability & Tests):
+"Implementa la telemetría y pruebas (NFRs).
+    - [] Integra Sentry-sdk para reporte de incidencias remotas (errores silenciosos) y telemetría muy básica (solo eventos como 'Instalación', 'Cacería Iniciada', 'Boleto Encontrado' para respetar privacidad).
+    - [] Usa loguru para crear un log local estructurado (ej. lobster.log con rotación a los 10MB) para depuración del usuario. 
+    - [] Crea la suite de pruebas con pytest: Escribe tests unitarios para los conversores de moneda (Zero-Decimal) y mocks de la intercepción de red del HunterService.
+- **Epic 7: Empaquetado y Distribución**
+  Cubriendo: Ligereza < 100MB, Fácil instalación/desinstalación, Despliegue en Windows.
+  - Prompt para el Agente (Fase 7 - Build & Installer):
+"Crea los scripts de construcción final.
+    - [] Genera un script build.py usando Nuitka (con los flags --standalone, --onefile, y --plugin-enable=flet) para compilar un ejecutable ligero (< 80MB) para Windows.
+    - [] Genera un archivo .iss (Inno Setup) para crear el instalador de Windows, asegurando que incluya atajos en el escritorio y un desinstalador limpio que borre el session.json."
