@@ -137,7 +137,10 @@
     - [] Crea entorno e instala flet, playwright, playwright-stealth, python-dotenv. Estructura: /core, /ui, /data, /domain.
     - [] Implementa SessionManager.py en /data. Usa Playwright para abrir Chrome visible (headless=False).
     - [] Navega a la URL de tickets de FIFA. El script debe esperar a que el usuario haga login manualmente (resolviendo captchas si los hay).
-    - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en un archivo local session.json. NUNCA pidas ni guardes credenciales en variables.
+    - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en un archivo local session.json. NUNCA pidas ni guardes contraseñas en variables.
+    - [] Valida el usuario mediante su perfil en https://fwc26-shop-mex.tickets.fifa.com/account/editPersonalDetails ya que se deben cumplir dos reglas de negocio:
+    	- Límite por hogar: es de cuatro (4) por partido. Todas las compras vinculadas a la misma dirección registrada en la cuenta FIFA se contabilizan para estos límites.
+     	- Restricción diaria: Solo puedes solicitar o comprar boletos para un partido por día.
 - **Epic 2: Configuración, UI y Sistema (Dashboard)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
