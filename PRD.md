@@ -32,7 +32,7 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
     S: Ligera, responsiva, prioritaria e inmediata para notificar.
     M: Menos de 2 segundos.
     T: Continuo hasta el día antes del mundial.
-  - Satisfacción del cliente: Debe conseguir al usuario al menos 1 boleto en su carrito y si su opinión es positiva, debe ofrecerle ver un anuncio o donativo para conseguir un segundo boleto o pagar 100 USD para intentar conseguir otros 9 boletos. También debe de aparece la opción de no funcionó.
+  - Satisfacción del cliente: Debe conseguir al usuario al menos 1 boleto en su carrito y si su opinión es positiva, debe ofrecerle hacer un donativo. También debe de aparece la opción de no funcionó.
     S: Conseguir al usuario al menos 1 boleto y la opción de obtener más.
     M: La tasa de No Funcionó es del 10%.
     T: Continuo hasta el día antes del mundial.
@@ -56,15 +56,17 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
 **Must Have (Obligatorio para el POC):**
 - Flujo de onboarding (Instrucciones, apertura del Browser para asistir el Login, configuracion de criterios de busqueda de boletos de interes, guias para configurar de nuevo estos valores).
 - Home (Pantalla principal donde se muestra la actividad de la aplicación, opciones para detener y arrancar, configurarla y visualización de los boletos que puede conseguir gratis (1)).
-- Modulo para conseguir más boletos, ya sea viendo 1 anuncio (solo puede conseguir 1 más como maximo), dando un donativo (solo puede conseguir 1 más como máximo o pagando 100 USD para conseguir 10 adicionales como máximo). En total 13 como máximo por usuario.
+- Modulo para conseguir más boletos, ya sea viendo 1 anuncio (solo puede conseguir 1 más como maximo), dando un donativo (solo puede conseguir 1 más como máximo o pagando  para conseguir 10 adicionales como máximo) pero siempre el total es 40 como máximo por usuario.
 - Pasarela de Pago (Checkout) usando Ads de video, Buyme a Coffe, Paypal o integraciones nativas.
 - Configuración con botón de Eliminar Cuenta y enlaces legales.
-
+- El producto distingue dos vías para ampliar el límite de boletos que la aplicación puede intentar asegurar en carrito, ambas basadas en donación y reflejadas en el registro remoto del usuario (access_granted / límites asociados en el sistema de licencias).
+(A) Desbloqueo asistido por la aplicación: el usuario utiliza los enlaces integrados (p. ej. Buy Me a Coffee y PayPal) desde la propia app; la donación debe incluir en el campo de notas el identificador de dispositivo indicado por la app, de modo que el sistema pueda correlacionar el pago con la fila de licencia correcta. La actualización del límite en el servidor puede ocurrir con latencia después del pago.
+(B) Desbloqueo fuera de la aplicación: el mismo resultado de ampliación puede lograrse cuando el operador del sistema actualiza manualmente el registro de licencia (p. ej. donación por otro canal, soporte, o proceso interno). Esta se usará por lo regular para asignar el valor FULL a access_granted desbloqueando la máxima capacidad. La aplicación no expone un flujo separado de “donación explícita” más allá de los enlaces y mensajes de instrucción; la ampliación se observa al sincronizar el estado remoto.
 Otros requerimientos:
 - Debe conseguir al menos 1 boleto en el carrito a cualquiera que la use.
 - Debe de funcionar unicamente hasta un día antes del mundial.
 - Debe ser más rapida que si lo hiera un humano de manera manual con un browser.
-- Debe de conseguir al menos 10 personas que agradezcan con donativo monetario o 1000 USD al permitir conseguir más boletos pero siempre el máximo será 13 boletos en total por usuario y despues ese usuario se bloquerá. La aplicación deberá de informarlo y permitir registrar otro usuario.
+- Debe de conseguir al menos 10 personas que agradezcan con donativo monetario o 1000 USD al permitir conseguir más boletos pero siempre el máximo será 40 boletos en total por usuario y despues ese usuario se bloquerá. La aplicación deberá de informarlo y permitir usar otro usuario.
 - Debe ser rápida en especial en el horario local a las 9 am ya que a esa hora suelen aparecer boletos.
 - Debe agregar el boleto al carrito de compras, máximo 1 por sesión por usuario y notificar al usuario por Telegram inmediatamente que logró agregar al carrito.
 - Debe ser compacta y ligera, facil de instalar y de desinstalar.

@@ -30,7 +30,11 @@
     "is_premium": false
   }
 }
-  - config.yaml: Preferencias de usuario, tokens de Telegram y límites de búsqueda.
+  - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en `.env` (plantilla `.env.example`); cargar con python-dotenv.
+  - Sincronización de licencias y modos de access_granted: La tabla remota licenses (Supabase) es la fuente de verdad para hardware_id y access_granted. Modo automatizado: BMC / PayPal abiertos desde la UI; el usuario incluye hardware_id en notas; integraciones externas (p. ej. Zapier) actualizan access_granted (p. ej. a DONATED) cuando el proveedor de pago entrega los metadatos necesarios.
+  Modo manual / fuera de banda: un operador o proceso no ligado a la app actualiza la misma tabla; el cliente solo relee el estado.
+  No existe estado intermedio PENDING en el producto: la UI no ofrece un tercer flujo de “donación explícita”; el usuario sigue las instrucciones y la app refresca el registro según los criterios de temporización definidos en §X (enfoco de ventana).
+
 
 ## 3. UI/UX Specifications and Navigation
 - **UI Framework:** Flet (Material Design 3 nativo).
@@ -150,15 +154,18 @@
   - Prompt para el Agente (Fase 2 - UI & Settings):
 "Implementa la capa de UI con Flet (Material 3).
     - [] Crea ConfigRepository.py para guardar selecciones en config.yaml local.
-    - [] Implementa un chequeo Geográfico inicial (usa una API gratuita como ip-api.com o la zona horaria del sistema). Si no es MX o US, muestra un error y bloquea la app.
+    - [] Implementa un chequeo Geográfico inicial usando ip-api.com. Si no es MX o US, muestra un error y bloquea la app.
     - [] Crea la vista OnboardingWizard: Pantalla 1 (Aviso de Privacidad y Disclaimer legal explícito), Pantalla 2 (Login/Captura de Sesión), Pantalla 3 (Selección de País Dropdown de equipos (usa IDs del HTML de FIFA), Límite de precio y Token de Telegram).
     - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema (Startup registry hook en Windows modificando el registro de HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run o carpeta Startup) que permita arrancar el .exe al encender la PC (opcional por toggle).
+    - Muestra en la configuración el valor de ID único de hardware de manera que el usuario lo pueda visualizar y copiar.
+    - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta activado, si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_secured_tickets = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y  permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1).
 - **Epic 3: Motor de Cacería (Hunter Algorithm)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
     - US7: Como usuario, quiero poder consultar qué está haciendo la app (estatus) y ser notificado de problemas.
     - US9: Como usuario, quiero que la aplicación inicie automáticamente al iniciar el sistema operativo.
-  - Prompt para el Agente (Fase 2 - UI & Settings): "Implementa la capa de UI con Flet (Material 3).
+  - Prompt para el Agente (Fase 3 - Hunter Service):
+"Implementa HunterService.py en /core usando asyncio.
     - [] Implementa HunterService.py en /core usando asyncio.
     - [] Inicia Playwright con stealth y carga session.json. Usa headless=True.
     - [] Navega a la URL de la tienda. Implementa interceptación XHR para leer las respuestas JSON de disponibilidad.
@@ -172,6 +179,10 @@
   - Prompt para el Agente (Fase 4 - Notifiers & Handoff): "Implementa el sistema de notificaciones y el paso de control.
     - [] Crea TelegramNotifier.py y SystemTrayNotifier.py (usa plyer para notificaciones nativas de OS).
     - [] Cuando HunterService confirme el clic de añadir al carrito, dispara la notificación indicando equipo, precio en formato $XX.XX (conviertiendo de centavos) y urgencia (haz la ventana visible).
+    - [] Usa la URL https://api.telegram.org/bot8627051417:AAHxFJZ9FdS0CVlvFmeoqhktt3QJs63kszc/getUpdates donde obtendrás un JSON asi: {"ok":true,"result":[{"update_id":32280098,
+    "message":{"message_id":2,"from":{"id":8786874544,"is_bot":false,"first_name":"Carlos","last_name":"Cano","language_code":"es"},"chat":{"id":8786874544,"first_name":"Carlos","last_name":"Cano","type":"private"},"date":1777332561,"text":"123456789"}}]}
+    Aqui hay dos datos importantes: 1) El valor de la llave "text" (en este ejemplo 123456789) y 2) su correspondiente "id" de chat (en este ejemplo 8786874544). Con estos dos valores debes de ir a supabase, buscar en la tabla de licenses por hardware_id = text y si lo encuentra entonces actualizar el campo telegram_chat_id = id.
+    - [] Una vez que se registra exitosamente el telegram_chat_id se debe de enviar un mensaje confirmando la integración invocando: https://api.telegram.org/bot8627051417:AAHxFJZ9FdS0CVlvFmeoqhktt3QJs63kszc/sendMessage?chat_id=8786874544&text=OK
     - [] Handoff: Inmediatamente después de agregar al carrito, detén el monitoreo. Pasa el contexto de Playwright a headless=False para que el usuario tome el mouse, ingrese sus datos bancarios y pague de forma segura.
     - [] Actualiza el contador tickets_secured en config.yaml y persiste el cambio."
 - **Epic 5: Telemetría, Control de Errores y Monetización**
@@ -180,9 +191,9 @@
     - US10: Como desarrollador, quiero que la app reporte incidencias remotas.
     - US11: Como desarrollador, quiero que registre información analítica básica.
   - Prompt para el Agente (Fase 5 - Resiliencia y Analytics): "Finaliza los requerimientos de seguridad, negocio y monetización en la UI.
-    - [] Si tickets_secured == 1, muestra un Paywall en la UI con opciones de pago nativas (enlaces a Buy Me a Coffee, Stripe y PayPal)
-    - [] Implementa un chequeo a un endpoint de control remoto (ej. un JSON en un Gist de GitHub o Supabase) usando un ID único de hardware. Si el ID está en la lista negra, lanza un error de 'Licencia Revocada'.
-    - [] Limita estrictamente: Si tickets_secured >= 13, bloquea permanentemente la app para ese usuario mostrando mensaje de límite alcanzado. Permitir borrar cuenta local. Bloquea nuevos intentos de cacería indicando el límite alcanzado.  
+    - [] Si tickets_secured == 1 es igual a max_secured_tickets (por default = 1), muestra un Paywall en la UI con opciones de pago nativas (enlaces a Buy Me a Coffee y PayPal). Al tocar cualquiera de estas opciones se debe de mostrar un mensaje al usuario que para instruirle que pegue el valor de hardware id en la sección de notas (no hay que decirle que es el valor sino que es necesario agregarlo para hacer la operación de manera exitosa).
+    - [] Si access_granted = "DONATED" entonces max_secured_tickets debe ser igual a 2.
+    - [] Limita estrictamente: Si tickets_secured >= 40, bloquea permanentemente la app para ese usuario mostrando mensaje de límite alcanzado. Permitir borrar cuenta local. Bloquea nuevos intentos de cacería indicando el límite alcanzado.  
     - [] Si HunterService detecta un HTTP 403 o Captcha, detén el proceso, notifica en la consola de la UI y pide resolución manual.
 - **Epic 6: Telemetría, Control de Errores y Monetización**
   Cubriendo: Reporte de incidencias (US10), Analítica (US11), Pruebas Unitarias.
@@ -197,4 +208,4 @@
 "Crea los scripts de construcción final.
     - [] Genera un script build.py usando Nuitka (con los flags --standalone, --onefile, y --plugin-enable=flet) para compilar un ejecutable ligero (< 80MB) para Windows.
     - [] Genera un archivo .iss (Inno Setup) para crear el instalador de Windows, asegurando que incluya atajos en el escritorio y un desinstalador limpio que borre el session.json."
-    - [] Lógica de Monetización: Implementa un contador local en config.yaml. Si tickets_secured == 1, muestra un Dialog en Flet ofreciendo links de 'BuyMeACoffee' o pago en Crypto. Hasta que el backend no valide el pago (o el usuario ingrese un código de desbloqueo), bloquea nuevos intentos de cacería indicando el límite alcanzado.  
+    - [] Lógica de Monetización: Implementa un contador local en config.yaml. Si max_tickets_secured = tickets_secured, muestra un Dialog en Flet ofreciendo links de 'BuyMeACoffee' y Paypal y bloquea nuevos intentos de cacería indicando el límite alcanzado. Hasta que Supabase confirme access_granted = DONATED el el limite se incrementará (max_tickets_secured). 
