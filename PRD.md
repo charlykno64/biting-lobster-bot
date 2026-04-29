@@ -28,7 +28,7 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
     S: Conversion de gratuito a paga.
     M: 5%
     T: 10 días antes del mundial
-  - Desempeño técnico: Debe pesar menos de 100 Mb, responder inmediatamente, rapida en monitoreo y notificación en menos de 2 segundos.
+  - Desempeño técnico: Debe pesar menos de 200 Mb, responder inmediatamente, rapida en monitoreo y notificación en menos de 2 segundos.
     S: Ligera, responsiva, prioritaria e inmediata para notificar.
     M: Menos de 2 segundos.
     T: Continuo hasta el día antes del mundial.
@@ -56,7 +56,7 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
 **Must Have (Obligatorio para el POC):**
 - Flujo de onboarding (Instrucciones, apertura del Browser para asistir el Login, configuracion de criterios de busqueda de boletos de interes, guias para configurar de nuevo estos valores).
 - Home (Pantalla principal donde se muestra la actividad de la aplicación, opciones para detener y arrancar, configurarla y visualización de los boletos que puede conseguir gratis (1)).
-- Modulo para conseguir más boletos, ya sea viendo 1 anuncio (solo puede conseguir 1 más como maximo), dando un donativo (solo puede conseguir 1 más como máximo o pagando  para conseguir 10 adicionales como máximo) pero siempre el total es 40 como máximo por usuario.
+- Modulo para conseguir más boletos dando un donativo (solo puede conseguir 1 más como máximo o pagando  para conseguir 10 adicionales como máximo) pero siempre el total es 40 como máximo por usuario.
 - Pasarela de Pago (Checkout) usando Ads de video, Buyme a Coffe, Paypal o integraciones nativas.
 - Configuración con botón de Eliminar Cuenta y enlaces legales.
 - El producto distingue dos vías para ampliar el límite de boletos que la aplicación puede intentar asegurar en carrito, ambas basadas en donación y reflejadas en el registro remoto del usuario (access_granted / límites asociados en el sistema de licencias).
@@ -70,7 +70,7 @@ Otros requerimientos:
 - Debe ser rápida en especial en el horario local a las 9 am ya que a esa hora suelen aparecer boletos.
 - Debe agregar el boleto al carrito de compras, máximo 1 por sesión por usuario y notificar al usuario por Telegram inmediatamente que logró agregar al carrito.
 - Debe ser compacta y ligera, facil de instalar y de desinstalar.
-- Debe poder funcionar en Windows la primera versión pero ser compatible para liberarse poco despues en los 3 principales sistemas operativos: Windows, Mac y Linux.
+- Debe poder funcionar en Mac OS la primera versión pero ser compatible para liberarse poco despues en los 3 principales sistemas operativos: Windows, Mac y Linux.
 - Debe de permitir al desarrollador de la aplicacion controlar quien puede usar la aplicación (no se desea permitir el abuso), donde puede usuarla (solo en México y Estados Unidos) y cuantos boletos puede consegir en el carrito.
 - Debe de solicitar al menos estos datos permisos: usuario y contraseña (FIFA), número Telegram, 
 permiso de ubicación, internet.
@@ -85,6 +85,9 @@ permiso de ubicación, internet.
 - Notificaciones mediante WhatsApp.
 - Notificaciones Push (Firebase Cloud Messaging) en una app React Native.
 - Máximo 10 instancia ejecutandose mundialmente par el mismo partido o boleto.
+- La actualización de access_granted se deberá realizar desde una Edge Function (RPC) en Supabase para proteger la escritura de la tabla y usar RLS (Row Level Security) asi se evita que un usuario malintencionado pueda modificar su valor.
+- Puede obtener un boleto adicional viendo 2 anuncios (solo puede conseguir 1 más como maximo)
+- Empaquetado para MacOS con Nuitka.
 
 **Won't Have (Ver sección 9).**
 
@@ -92,7 +95,7 @@ permiso de ubicación, internet.
 - **Arquitectura:** Clean Architecture con MVVM y Unidirectional Data Flow y Principios SOLID.
 - **Manejo de Moneda:** Implementación estricta de patrón *Zero-Decimal* en USD (los precios se procesan en centavos a nivel de código).
 - **Seguridad y Privacidad:** Al recolectar datos sensibles (usuario y contraseña de la cuenta FIFA), la app incluye un aviso de privacidad super resumido en el Onboarding y cumplimiento básico de normativas y leyes indicando que no es responsabilidad del desarrollador el uso que haga del software. En especial debe ser claro que la aplicación no rompe la segurida de la pagina de la FIFA.
-- **Disponibilidad:** Soporte para Windows y escalabilidad a MacOS y Linux.
+- **Disponibilidad:** Soporte para MacOS y escalabilidad a Windows y Linux.
 
 ## 7. Diseño y Experiencia de Usuario (UX)
 - **Componentes Core:** Uso de tarjetas estructuradas y paneles compactos.
