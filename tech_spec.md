@@ -30,7 +30,10 @@
     "is_premium": false
   }
 }
-  - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en `.env`; cargar con python-dotenv.
+  - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en '.env'; cargar con python-dotenv.
+    Nota técnica: Gestión de variables de entorno (v1.0.0): Durante la primera versión, la aplicación utilizará exclusivamente el archivo local .env.dev para cargar secretos y parámetros sensibles (por ejemplo, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN).
+    El archivo .env.dev es de uso local, no debe versionarse y debe estar excluido en .gitignore.
+    El archivo .env.example se incorporará a partir de la versión v1.0.1 como plantilla sin secretos para estandarizar despliegue y onboarding técnico.
   - Sincronización de licencias y modos de access_granted: La tabla remota licenses (Supabase) es la fuente de verdad para hardware_id y access_granted. Modo automatizado: BMC / PayPal abiertos desde la UI; el usuario incluye hardware_id en notas; integraciones externas (p. ej. Zapier) actualizan access_granted (p. ej. a DONATED) cuando el proveedor de pago entrega los metadatos necesarios.
   Modo manual / fuera de banda: un operador o proceso no ligado a la app actualiza la misma tabla; el cliente solo relee el estado.
   No existe estado intermedio PENDING en el producto: la UI no ofrece un tercer flujo de “donación explícita”; el usuario sigue las instrucciones y la app refresca el registro según los criterios de temporización definidos en 10 y luego 30 segundos siempre (enfoco de ventana) sucesivamente.
@@ -145,7 +148,7 @@
     - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en un archivo local session.json. NUNCA pidas ni guardes contraseñas en variables.
     - [] Valida el usuario mediante su perfil en https://fwc26-shop-mex.tickets.fifa.com/account/editPersonalDetails ya que se deben cumplir dos reglas de negocio:
     	- Límite por hogar: es de cuatro (4) por partido. Todas las compras vinculadas a la misma dirección registrada en la cuenta FIFA se contabilizan para estos límites.
-     	- Restricción diaria: Solo puedes solicitar o comprar boletos para un partido por día.
+     	- Restricción diaria: Solo puedes solicitar o comprar boletos para un partido por día."
 - **Epic 2: Configuración, UI y Sistema (Dashboard)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
@@ -154,11 +157,16 @@
   - Prompt para el Agente (Fase 2 - UI & Settings):
 "Implementa la capa de UI con Flet (Material 3).
     - [] Crea ConfigRepository.py para guardar selecciones en config.yaml local.
-    - [] Implementa un chequeo Geográfico inicial usando ip-api.com. Si no es MX o US, muestra un error y bloquea la app.
-    - [] Crea la vista OnboardingWizard: Pantalla 1 (Aviso de Privacidad y Disclaimer legal explícito), Pantalla 2 (Login/Captura de Sesión), Pantalla 3 (Selección de País Dropdown de equipos (usa IDs del HTML de FIFA), Límite de precio y Token de Telegram).
-    - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema (Startup registry hook en Windows modificando el registro de HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run o carpeta Startup) que permita arrancar el .exe al encender la PC (opcional por toggle).
+    - [] Implementa un chequeo Geográfico inicial usando ip-api.com. Si no es Mexico, o United States o Canada, muestra un error y bloquea la app.
+    - [] Crea la vista OnboardingWizard: Pantalla 1 (Aviso de Privacidad y Disclaimer legal explícito), Pantalla 2 (Login/Captura de Sesión), Pantalla 3 (Selección de País Dropdown de equipos (usa IDs del HTML de FIFA), Categorias preferidas y Límite de precio).
+    - [] Las categorias distintas categorias pero en general se pueden clasificar como:
+      - Categoria 1, Categoria 2, Categoria 3 y Categoria 4.
+      - Algunas Categorias como la 1 se pueden llegar a subdividir, por ejemplo: Zona delantera (categoría 1) pero agrupalas y consideralas simplemente como su categoria padre en este caso "Zona delantera (categoría 1)" se debe tratar co Categoría 1.
+      - Las preferencias por Categorias tiene un orden de importancia, si se elige primero la Categoria 3 y luego la Categoria 2 se debe priorizar la selección de la Categoria 3 sobre la 2. Si solo hay un boleto disponible para la Categoria 3 se selecciona y se agrega al carrito y se completa con otras categorias según la prioridad de categorias hasta completar el valor de quantity en config.yaml. Si quantity no se logra completar por falta de disponibilidad entonces se procede a continuar el flujo de manera normal.
+    - [] El limite de precio es un campo de texto en USD dolares que permite excluir aquellos boletos que superan el precio limite. Dependiendo de la cuenta, el precio puede aparecer en MXN o USD o Dolares Canadienses y se tiene que hacer la conversión según corresponda para filtrar correctamente. 
+    - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema.
     - Muestra en la configuración el valor de ID único de hardware de manera que el usuario lo pueda visualizar y copiar.
-    - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta con hardware_id = <ID único de hardware>, access_granted = 'LIMITED' y tickets_secured = 0, y si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_tickets_secured = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1). El estado debe ser guardado en Supabase y no debe modificarse localmente. Solo debe actualizarse el estado local de la aplicación leyendo el estado desde Supabase. La estrategia de polling es de 30 segundos. Usa el ID único de hardware para identificar al usuario.
+    - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta con hardware_id = <ID único de hardware>, access_granted = 'LIMITED' y tickets_secured = 0, y si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_tickets_secured = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1). El estado debe ser guardado en Supabase y no debe modificarse localmente. Solo debe actualizarse el estado local de la aplicación leyendo el estado desde Supabase. La estrategia de polling es de 30 segundos. Usa el ID único de hardware para identificar al usuario."
 - **Epic 3: Motor de Cacería (Hunter Algorithm)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
@@ -170,8 +178,9 @@
     - [] Inicia Playwright con stealth y carga session.json. Usa headless=True.
     - [] Navega a la URL de la tienda. Implementa interceptación XHR para leer las respuestas JSON de disponibilidad.
     - [] Usa un 'Jitter' (retraso aleatorio gaussiano) entre peticiones para evitar baneos.
-    - [] Al encontrar disponibilidad, navega al detalle del asiento. Selecciona 'Reservar el mejor sitio', intenta Categoría 1, cantidad 1.
-    - [] Busca el botón con id="book" y haz un clic simulado con coordenadas humanizadas y emite evento de 'Boleto Asegurado'.
+    - [] Al encontrar disponibilidad, navega al detalle del asiento. Selecciona 'Reservar el mejor sitio' y agrega quantity según disponibilidad y la prioridad de Categorias en config.yaml.
+    - [] Al leer el precio del JSON, pásalo por una nueva clase CurrencyConverter que lea las tasas de cambio de config.yaml y lo convierta a centavos de USD antes de compararlo con max_price_cents. Si el precio convertido es menor o igual al límite, procede al Auto-Carting.
+    - [] Busca el botón con id="book" y haz un clic simulado con coordenadas humanizadas y emite evento de Notificación de 'Boleto Asegurado'."
 - **Epic 4: Notificaciones y Handoff (Checkout)**
   - Historias de Usuario cubiertas:
     - US5: Como usuario, quiero que la app me notifique en Telegram y sistema cuando agregue un boleto, dando acceso al carrito.
@@ -188,7 +197,7 @@
     - [] Usa la URL https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates donde obtendrás un JSON asi: {"ok":true,"result":[{"update_id":32280098,
     "message":{"message_id":2,"from":{"id":8786874544,"is_bot":false,"first_name":"Carlos","last_name":"Cano","language_code":"es"},"chat":{"id":8786874544,"first_name":"Carlos","last_name":"Cano","type":"private"},"date":1777332561,"text":"123456789"}}]}
     Aqui hay dos datos importantes: 1) El valor de la llave "text" (en este ejemplo 123456789) y 2) su correspondiente "id" de chat (en este ejemplo 8786874544). Con estos dos valores debes primero validar si alguna de los hardware_id corresponde al mismo de la aplicación, luego si encontraste la conincidencia debes ir a supabase, buscar en la tabla de licenses por hardware_id = text y si lo encuentra entonces actualizar el campo telegram_chat_id = id.
-    Nota Técnica: Al invocar getUpdates, hazlo ESTRICTAMENTE sin el parámetro offset. Esto devolverá el histórico de los últimos mensajes. La app debe filtrar este array buscando text == hardware_id_local. Nunca marques el mensaje como leído (evita usar offset) para no afectar a otras instancias del bot.
+    Nota Técnica: Al invocar getUpdates, hazlo ESTRICTAMENTE sin el parámetro offset. Esto devolverá el histórico de los últimos mensajes. La app debe filtrar este array buscando text == hardware_id_local. Nunca marques el mensaje como leído (evita usar offset) para no afectar a otras instancias del bot. Estrategia temporal de sincronización Telegram para reducir complejidad en el MVP y dado el bajo volumen inicial (2 a 3 usuarios), la integración de Telegram consumirá getUpdates sin parámetro offset, filtrando localmente por hardware_id para asociar telegram_chat_id. Esta decisión se considera temporal y controlada por alcance.
     - [] Una vez que se registra exitosamente el telegram_chat_id se debe de enviar un mensaje confirmando la integración invocando: https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id={ID_CHAT}&text={MENSAJE_CONFIRMACION} donde el mensaje de confirmaciónm es una respuesta para que el usuario sepa que ya tiene activado la comunicación con Telegram y el bot.
     - [] Handoff: Inmediatamente después de agregar al carrito, detén el monitoreo. Pasa el contexto de Playwright a headless=False para que el usuario tome el mouse, ingrese sus datos bancarios y pague de forma segura.
     - [] Actualiza el contador tickets_secured en config.yaml y persiste el cambio."
@@ -211,6 +220,10 @@
 
 - **Epic 7: Empaquetado y Distribución**
   Cubriendo: Ligereza < 200MB, Fácil instalación/desinstalación, Despliegue en MacOS.
+  Prioridad de plataforma por versión:
+      v1.0.0 (MVP): objetivo principal y único compromiso de entrega en macOS (ejecutable .app + instalador .dmg).
+      Windows: se considera nice-to-have en esta etapa y no bloquea la liberación de v1.0.0.
+      Post-MVP (v1.0.1+): se prioriza la incorporación de empaquetado e instalador para Windows.
   - Prompt para el Agente (Fase 7 - Build & Windows Installer nice2have para la versión 1.0.1):
 "Crea los scripts de construcción final.
     - [] Genera un script build.py usando Nuitka (con los flags --standalone, --onefile, y --plugin-enable=flet) para compilar un ejecutable ligero (< 200MB) para MacOS usando zstandard y onefile mode.

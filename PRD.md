@@ -61,17 +61,17 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
 - Configuración con botón de Eliminar Cuenta y enlaces legales.
 - El producto distingue dos vías para ampliar el límite de boletos que la aplicación puede intentar asegurar en carrito, ambas basadas en donación y reflejadas en el registro remoto del usuario (access_granted / límites asociados en el sistema de licencias).
 (A) Desbloqueo asistido por la aplicación: el usuario utiliza los enlaces integrados (p. ej. Buy Me a Coffee y PayPal) desde la propia app; la donación debe incluir en el campo de notas el identificador de dispositivo indicado por la app, de modo que el sistema pueda correlacionar el pago con la fila de licencia correcta. La actualización del límite en el servidor puede ocurrir con latencia después del pago.
-(B) Desbloqueo fuera de la aplicación: el mismo resultado de ampliación puede lograrse cuando el operador del sistema actualiza manualmente el registro de licencia (p. ej. donación por otro canal, soporte, o proceso interno). Esta se usará por lo regular para asignar el valor FULL a access_granted desbloqueando la máxima capacidad. La aplicación no expone un flujo separado de “donación explícita” más allá de los enlaces y mensajes de instrucción; la ampliación se observa al sincronizar el estado remoto.
+(B) Desbloqueo fuera de la aplicación: el mismo resultado de ampliación puede lograrse cuando el operador del sistema actualiza manualmente el registro de licencia (p. ej. donación por otro canal, soporte, o proceso interno). Esta se usará por lo regular para asignar el valor FULL a access_granted desbloqueando la máxima capacidad. La aplicación no expone un flujo separado de “donación explícita” más allá de los enlaces y mensajes de instrucción; la ampliación se observa al sincronizar el estado remoto. La asignación manual de FULL requiere validación interna y registro de auditoría.
 Otros requerimientos:
 - Debe conseguir al menos 1 boleto en el carrito a cualquiera que la use.
 - Debe de funcionar unicamente hasta un día antes del mundial.
 - Debe ser más rapida que si lo hiera un humano de manera manual con un browser.
 - Debe de conseguir al menos 10 personas que agradezcan con donativo monetario o 1000 USD al permitir conseguir más boletos pero siempre el máximo será 40 boletos en total por usuario y despues ese usuario se bloquerá. La aplicación deberá de informarlo y permitir usar otro usuario.
 - Debe ser rápida en especial en el horario local a las 9 am ya que a esa hora suelen aparecer boletos.
-- Debe agregar el boleto al carrito de compras, máximo 1 por sesión por usuario y notificar al usuario por Telegram inmediatamente que logró agregar al carrito.
+- Debe agregar el boleto al carrito de compras, máximo configurable por sesión por usuario y notificar al usuario por Telegram inmediatamente que logró agregar al carrito.
 - Debe ser compacta y ligera, facil de instalar y de desinstalar.
 - Debe poder funcionar en Mac OS la primera versión pero ser compatible para liberarse poco despues en los 3 principales sistemas operativos: Windows, Mac y Linux.
-- Debe de permitir al desarrollador de la aplicacion controlar quien puede usar la aplicación (no se desea permitir el abuso), donde puede usuarla (solo en México y Estados Unidos) y cuantos boletos puede consegir en el carrito.
+- Debe de permitir al desarrollador de la aplicacion controlar quien puede usar la aplicación (no se desea permitir el abuso), donde puede usuarla (solo en México, Estados Unidos y Canadá) y cuantos boletos puede consegir en el carrito.
 - Debe de solicitar al menos estos datos permisos: usuario y contraseña (FIFA), número Telegram, 
 permiso de ubicación, internet.
 - No debe realizar ataques de denegación de servicio (DoS). Debe respetar los intervalos de refresco para evitar bloqueos de IP (Shadowban).
@@ -86,7 +86,11 @@ permiso de ubicación, internet.
 - Notificaciones Push (Firebase Cloud Messaging) en una app React Native.
 - Máximo 10 instancia ejecutandose mundialmente par el mismo partido o boleto.
 - La actualización de access_granted se deberá realizar desde una Edge Function (RPC) en Supabase para proteger la escritura de la tabla y usar RLS (Row Level Security) asi se evita que un usuario malintencionado pueda modificar su valor.
-- Integración con Telegram para notificaciones y sincronización de sesiones usando una Edge Function en Supabase para mantener el Token seguro en el backend
+- Integración con Telegram para notificaciones y sincronización de sesiones usando una Edge Function en Supabase para mantener el Token seguro en el backend.
+- Implementar estrategia con offset persistente por instancia para:
+  evitar reprocesamiento de mensajes históricos,
+  reducir tráfico innecesario al API de Telegram,
+  mejorar escalabilidad multiusuario y consistencia entre sesiones.
 - Puede obtener un boleto adicional viendo 2 anuncios (solo puede conseguir 1 más como maximo)
 - Empaquetado para MacOS con Nuitka.
 
