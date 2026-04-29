@@ -158,7 +158,7 @@
     - [] Crea la vista OnboardingWizard: Pantalla 1 (Aviso de Privacidad y Disclaimer legal explícito), Pantalla 2 (Login/Captura de Sesión), Pantalla 3 (Selección de País Dropdown de equipos (usa IDs del HTML de FIFA), Límite de precio y Token de Telegram).
     - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema (Startup registry hook en Windows modificando el registro de HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run o carpeta Startup) que permita arrancar el .exe al encender la PC (opcional por toggle).
     - Muestra en la configuración el valor de ID único de hardware de manera que el usuario lo pueda visualizar y copiar.
-    - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta activado, si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_tickets_secured = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y  permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1).
+    - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta con hardware_id = <ID único de hardware>, access_granted = 'LIMITED' y tickets_secured = 0, y si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_tickets_secured = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1). El estado debe ser guardado en Supabase y no debe modificarse localmente. Solo debe actualizarse el estado local de la aplicación leyendo el estado desde Supabase. La estrategia de polling es de 30 segundos. Usa el ID único de hardware para identificar al usuario.
 - **Epic 3: Motor de Cacería (Hunter Algorithm)**
   - Historias de Usuario cubiertas:
     - US3: Como usuario, quiero que la aplicación me pregunte en qué equipos estoy interesado y recordar esta decisión.
@@ -179,10 +179,17 @@
   - Prompt para el Agente (Fase 4 - Notifiers & Handoff): "Implementa el sistema de notificaciones y el paso de control.
     - [] Crea TelegramNotifier.py y SystemTrayNotifier.py (usa plyer para notificaciones nativas de OS).
     - [] Cuando HunterService confirme el clic de añadir al carrito, dispara la notificación indicando equipo, precio en formato $XX.XX (conviertiendo de centavos) y urgencia (haz la ventana visible).
+    Nota técnica: 
+      - Auto-Carting exitoso: El script en headless=True logra hacer clic en "Añadir al carrito".
+      - Estado: El script inmediatamente guarda el storage_state actualizado (que ahora contiene la cookie del carrito activo) en nuestro archivo session.json.
+      - Cerrar y Reabrir: El script cierra la instancia oculta y lanza inmediatamente una nueva instancia de Playwright, pero esta vez con headless=False y cargando el session.json.
+      - Redirección: Esta nueva ventana visible navega directamente a la URL del carrito /checkout.
+      - Control total: ¡Listo! El usuario ve la ventana emergente con su sesión activa y su boleto esperando el pago.
     - [] Usa la URL https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates donde obtendrás un JSON asi: {"ok":true,"result":[{"update_id":32280098,
     "message":{"message_id":2,"from":{"id":8786874544,"is_bot":false,"first_name":"Carlos","last_name":"Cano","language_code":"es"},"chat":{"id":8786874544,"first_name":"Carlos","last_name":"Cano","type":"private"},"date":1777332561,"text":"123456789"}}]}
     Aqui hay dos datos importantes: 1) El valor de la llave "text" (en este ejemplo 123456789) y 2) su correspondiente "id" de chat (en este ejemplo 8786874544). Con estos dos valores debes primero validar si alguna de los hardware_id corresponde al mismo de la aplicación, luego si encontraste la conincidencia debes ir a supabase, buscar en la tabla de licenses por hardware_id = text y si lo encuentra entonces actualizar el campo telegram_chat_id = id.
-    - [] Una vez que se registra exitosamente el telegram_chat_id se debe de enviar un mensaje confirmando la integración invocando: https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=8786874544&text=OK
+    Nota Técnica: Al invocar getUpdates, hazlo ESTRICTAMENTE sin el parámetro offset. Esto devolverá el histórico de los últimos mensajes. La app debe filtrar este array buscando text == hardware_id_local. Nunca marques el mensaje como leído (evita usar offset) para no afectar a otras instancias del bot.
+    - [] Una vez que se registra exitosamente el telegram_chat_id se debe de enviar un mensaje confirmando la integración invocando: https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage?chat_id={ID_CHAT}&text={MENSAJE_CONFIRMACION} donde el mensaje de confirmaciónm es una respuesta para que el usuario sepa que ya tiene activado la comunicación con Telegram y el bot.
     - [] Handoff: Inmediatamente después de agregar al carrito, detén el monitoreo. Pasa el contexto de Playwright a headless=False para que el usuario tome el mouse, ingrese sus datos bancarios y pague de forma segura.
     - [] Actualiza el contador tickets_secured en config.yaml y persiste el cambio."
 - **Epic 5: Negocio y Monetización**
@@ -203,8 +210,16 @@
     - [] Crea la suite de pruebas con pytest: Escribe tests unitarios para los conversores de moneda (Zero-Decimal) y mocks de la intercepción de red del HunterService.
 
 - **Epic 7: Empaquetado y Distribución**
-  Cubriendo: Ligereza < 200MB, Fácil instalación/desinstalación, Despliegue en MacOS usando Nuitka con zstandard y onefile mode)
-  - Prompt para el Agente (Fase 7 - Build & Installer):
+  Cubriendo: Ligereza < 200MB, Fácil instalación/desinstalación, Despliegue en MacOS.
+  - Prompt para el Agente (Fase 7 - Build & Windows Installer nice2have para la versión 1.0.1):
 "Crea los scripts de construcción final.
     - [] Genera un script build.py usando Nuitka (con los flags --standalone, --onefile, y --plugin-enable=flet) para compilar un ejecutable ligero (< 200MB) para MacOS usando zstandard y onefile mode.
+    - El script debe invocar playwright install chromium silenciosamente post-instalación usando el siguiente comando: playwright install chromium --with-deps para mantener el paquete ligero de la aplicación.
     - [] Genera un archivo .iss (Inno Setup) para crear el instalador de Windows, asegurando que incluya atajos en el escritorio y un desinstalador limpio que borre el session.json."
+  - Prompt para el Agente (Fase 7 - Build & DMG Installer):
+    "Crea los scripts de construcción final para macOS.
+    - [] Modifica la lógica de rutas en core/utils/ para que en macOS el session.json y config.yaml se guarden en ~/Library/Application Support/BitingLobster/.
+    - [] Genera un script build_mac.py que use Nuitka o PyInstaller con el flag --windowed para crear un Mac App Bundle (.app).
+    - [] Asegura que el icono del proyecto (.icns) esté correctamente vinculado en el Info.plist.
+    - [] Utiliza la herramienta create-dmg para generar un archivo .dmg profesional. El DMG debe tener un fondo personalizado (si está disponible), el icono de la app y un acceso directo a la carpeta /Applications para la instalación por arrastre.
+    - [] Documenta el comando codesign necesario para evitar que Gatekeeper bloquee la app (aunque sea con firma 'ad-hoc' para desarrollo)."

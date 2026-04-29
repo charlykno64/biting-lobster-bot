@@ -86,6 +86,7 @@ permiso de ubicación, internet.
 - Notificaciones Push (Firebase Cloud Messaging) en una app React Native.
 - Máximo 10 instancia ejecutandose mundialmente par el mismo partido o boleto.
 - La actualización de access_granted se deberá realizar desde una Edge Function (RPC) en Supabase para proteger la escritura de la tabla y usar RLS (Row Level Security) asi se evita que un usuario malintencionado pueda modificar su valor.
+- Integración con Telegram para notificaciones y sincronización de sesiones usando una Edge Function en Supabase para mantener el Token seguro en el backend
 - Puede obtener un boleto adicional viendo 2 anuncios (solo puede conseguir 1 más como maximo)
 - Empaquetado para MacOS con Nuitka.
 
