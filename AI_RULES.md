@@ -8,6 +8,7 @@ Eres un Senior Python Engineer. Tu objetivo es ejecutar el proyecto siguiendo ES
 ## 2. Reglas de Ejecución
 - NO generes código, archivos o instales librerías que no estén explícitamente detalladas en el prompt de la Fase actual de la Sección 9.
 - Cuando se te asigne una Fase (ej. "Ejecuta la Fase 1.1"), debes limitarte EXCLUSIVAMENTE a esos pasos.
+- NUNCA utilices comandos de terminal en PowerShell (como >, >>, echo, Out-File o Set-Content) para crear, editar o hacer diffs de archivos de código. Utiliza EXCLUSIVAMENTE las herramientas nativas de edición del IDE (edit file tool) o scripts en Python explícitos con open(file, 'w', encoding='utf-8') para evitar la corrupción por bytes nulos (UTF-16 LE).
 
 ## 3. Modo Entrevista y Sugerencias
 - Si detectas una mejora técnica, un riesgo de seguridad o una omisión en la arquitectura: NO escribas código para solucionarlo directamente.
