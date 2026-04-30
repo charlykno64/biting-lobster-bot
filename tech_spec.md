@@ -3,9 +3,9 @@
 ## 1. Technical Architecture and System Design
 - **Plataforma:** Desktop (Windows/macOS/Linux).
 - **Lenguaje:** Python 3.11+.
-- **Arquitectura Base:** Clean Architecture adaptada a scripts de automatización.
+- **Arquitectura Base:** Clean Architecture adaptada a asistente manual + automatización controlada.
   - **Domain Layer:** Business logic pura (Entidades como Match, Ticket, UserSession), Use Cases (MonitorPrices, ReserveTicket) y abstracciones de notificación (NotifyUser).
-  - **Data Layer:** Implementaciones de PlaywrightBrowser, persistencia de sesiones en JSON y logging de errores. Repositorios para persistencia local (SQLite/JSON para cookies y configuración) y PlaywrightWrapper para la interacción web.
+  - **Data Layer:** Implementaciones de PlaywrightBrowser vía CDP (conexión a Chrome abierto manualmente por el usuario), persistencia de sesiones en JSON y logging de errores. Repositorios para persistencia local (SQLite/JSON para cookies y configuración) y PlaywrightWrapper para la interacción web.
   - **Presentation Layer:** UI reactiva usando Flet (basado en Flutter) con arquitectura MVVM. Comunicación entre capas mediante inyección de dependencias simple.
 - **Concurrencia:** asyncio para el loop de monitoreo no bloqueante de la UI.
 
@@ -141,10 +141,11 @@
     - US2: Como usuario, quiero que la aplicación inicie sesión por mi, asistiéndome solo en caso de requerir captcha.
   - Prompt para el Agente (Fase 1 - Setup & Session Manager):
 "Actúa como Senior Python Engineer. Construye 'Biting Lobster' usando Clean Architecture: 
-    - [] Crea entorno e instala flet, playwright, playwright-stealth, python-dotenv. Guarda en un script llamado "setup-windows" para recrear el entorno en caso de ser necesario en Windows.
+    - [] Crea entorno e instala flet, playwright, python-dotenv. Guarda en un script llamado "setup-windows" para recrear el entorno en caso de ser necesario en Windows.
     - [] Estructura de carpetas: /core, /ui, /data, /domain. 
-    - [] Implementa SessionManager.py en /data. Usa Playwright para abrir Chrome visible (headless=False).
-    - [] Navega a la URL de tickets de FIFA. El script debe esperar a que el usuario haga login manualmente (resolviendo captchas si los hay).
+    - [] Implementa SessionManager.py en /data. NO debe lanzar un navegador nuevo. Debe conectarse via CDP a una instancia de Google Chrome abierta manualmente por el usuario.
+    - [] El modo por defecto debe ser asistido/manual y legal: sin logica de evasión o bypass de controles de seguridad.
+    - [] Conecta Playwright usando chromium.connect_over_cdp("http://127.0.0.1:9222") a la sesion iniciada por el usuario.
     - [] Una vez detectado el login exitoso, guarda el storage_state estrictamente en un archivo local session.json. NUNCA pidas ni guardes contraseñas en variables.
     - [] Valida el usuario mediante su perfil en https://fwc26-shop-mex.tickets.fifa.com/account/editPersonalDetails ya que se deben cumplir dos reglas de negocio:
     	- Límite por hogar: es de cuatro (4) por partido. Todas las compras vinculadas a la misma dirección registrada en la cuenta FIFA se contabilizan para estos límites.

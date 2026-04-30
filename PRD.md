@@ -40,8 +40,8 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
 **Persona Principal:** Persona que desea conseguir un boleto para uno o varios partidos del mundial.
 
 **Historias de Usuario Core:**
-- *Como* usuario, *quiero* sentirme seguro al proporcionar mi usuario y contraseña, y saber que solo será usada de manera local.
-- *Como* usuario, *quiero* que la aplicación inicie sesión por mi, automaticamente y solo en caso de requerir captcha me pida solucionarlo evitando volver a pedirme estos datos en la medida de lo posible.
+- *Como* usuario, *quiero* sentirme seguro al iniciar sesión directamente en FIFA desde mi propio Google Chrome, sin entregar mis credenciales a la aplicación.
+- *Como* usuario, *quiero* que la aplicación use la sesión que yo ya inicié en Chrome (vía conexión CDP) y solo en caso de captcha me pida resolverlo manualmente.
 - *Como* usuario, *quiero* que la aplicación me pregunte en que equipos o partidos estoy interesado o si solo quiero un boleto del partido que sea y recordar esta decisión.
 - *Como* usuario, *quiero* que la aplicación busque, monitoree y agrege al carrito automaticamente los boletos que cumplan con mi criterio de interes, de un boleto a máximo 2.
 - *Como* usuario, *quiero* que la aplicación me notifique en Telegram y en la bandeja del sistema cuando haya logrado agregar boletos al carrito de compra exitosamente e indicarme en el mensaje que partido es, cuanto cuesta y cuanto tiempo me queda dandome un acceso directo o una manera de ir a revisar el carrito.
@@ -72,8 +72,8 @@ Otros requerimientos:
 - Debe ser compacta y ligera, facil de instalar y de desinstalar.
 - Debe poder funcionar en Mac OS la primera versión pero ser compatible para liberarse poco despues en los 3 principales sistemas operativos: Windows, Mac y Linux.
 - Debe de permitir al desarrollador de la aplicacion controlar quien puede usar la aplicación (no se desea permitir el abuso), donde puede usuarla (solo en México, Estados Unidos y Canadá) y cuantos boletos puede consegir en el carrito.
-- Debe de solicitar al menos estos datos permisos: usuario y contraseña (FIFA), número Telegram, 
-permiso de ubicación, internet.
+- Debe solicitar únicamente los datos y permisos mínimos: número Telegram, permiso de ubicación e internet.
+- No debe solicitar ni almacenar usuario/contraseña de FIFA ni datos bancarios.
 - No debe realizar ataques de denegación de servicio (DoS). Debe respetar los intervalos de refresco para evitar bloqueos de IP (Shadowban).
 - La inversión para esta aplicación debe ser minima o cero priorizando el uso de herramientas, libres, o de pago dentro de sus limites freemium.
 
@@ -99,7 +99,7 @@ permiso de ubicación, internet.
 ## 6. Requerimientos No Funcionales
 - **Arquitectura:** Clean Architecture con MVVM y Unidirectional Data Flow y Principios SOLID.
 - **Manejo de Moneda:** Implementación estricta de patrón *Zero-Decimal* en USD (los precios se procesan en centavos a nivel de código).
-- **Seguridad y Privacidad:** Al recolectar datos sensibles (usuario y contraseña de la cuenta FIFA), la app incluye un aviso de privacidad super resumido en el Onboarding y cumplimiento básico de normativas y leyes indicando que no es responsabilidad del desarrollador el uso que haga del software. En especial debe ser claro que la aplicación no rompe la segurida de la pagina de la FIFA.
+- **Seguridad y Privacidad:** La app no recolecta credenciales FIFA ni datos bancarios. El login se realiza manualmente por el usuario en su propio Chrome y la app solo reutiliza el `storage_state` local. Incluye aviso de privacidad resumido en Onboarding y cumplimiento básico de normativas y leyes.
 - **Disponibilidad:** Soporte para MacOS y escalabilidad a Windows y Linux.
 
 ## 7. Diseño y Experiencia de Usuario (UX)
@@ -108,7 +108,7 @@ permiso de ubicación, internet.
 - **Tema:** Basado en Material 3 utilizando los colores de la FIFA y los de la Selecciones de Futbol de México y Estados Unidos.
 - **Jornada del Usuario:**
   1. Splash & Onboarding.
-  2. Modo "Navegador Preparado": Se abre una ventana de Chrome controlada por la app. El usuario se loguea en FIFA.com. La app dice: "Sesión capturada con éxito".
+  2. Modo "Navegador Preparado": El usuario abre manualmente Google Chrome con puerto CDP habilitado y realiza login en FIFA.com. La app se conecta a esa instancia para capturar la sesión.
   3. Configuración de Criterios: Selección de partidos.
   4. Modo "Cacería" (Background Service): La ventana se cierra o minimiza. Playwright empieza el loop de monitoreo usando las cookies capturadas.
   5.Hit!: Notificación Telegram/Sistema + Sonido de alarma.
