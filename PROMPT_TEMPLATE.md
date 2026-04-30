@@ -1,6 +1,6 @@
 Actúa como Senior Python Engineer y ejecuta EXCLUSIVAMENTE la fase indicada de `tech_spec.md` (Sección 9), respetando `AI_RULES.md`.
 FASE OBJETIVO:
-- Ejecuta: Epic 1 "Infraestructura Base y Captura de Sesión (Auth)"
+- Ejecuta: Epic 2 "Configuración, UI y Sistema (Dashboard)"
 REGLAS DE EJECUCIÓN:
 1) Fuente de verdad única: `tech_spec.md` Sección 9.
 2) NO implementes nada fuera de la fase objetivo.

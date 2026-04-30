@@ -31,12 +31,27 @@
   }
 }
   - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en '.env'; cargar con python-dotenv.
-    Nota técnica: Gestión de variables de entorno (v1.0.0): Durante la primera versión, la aplicación utilizará exclusivamente el archivo local .env.dev para cargar secretos y parámetros sensibles (por ejemplo, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN).
-    El archivo .env.dev es de uso local, no debe versionarse y debe estar excluido en .gitignore.
-    El archivo .env.example se incorporará a partir de la versión v1.0.1 como plantilla sin secretos para estandarizar despliegue y onboarding técnico.
+  Nota técnica: Gestión de variables de entorno (v1.0.0): Durante la primera versión, la aplicación utilizará exclusivamente el archivo local .env.dev para cargar secretos y parámetros sensibles (por ejemplo, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN).
+  El archivo .env.dev es de uso local, no debe versionarse y debe estar excluido en .gitignore.
+  El archivo .env.example se incorporará a partir de la versión v1.0.1 como plantilla sin secretos para estandarizar despliegue y onboarding técnico.
   - Sincronización de licencias y modos de access_granted: La tabla remota licenses (Supabase) es la fuente de verdad para hardware_id y access_granted. Modo automatizado: BMC / PayPal abiertos desde la UI; el usuario incluye hardware_id en notas; integraciones externas (p. ej. Zapier) actualizan access_granted (p. ej. a DONATED) cuando el proveedor de pago entrega los metadatos necesarios.
   Modo manual / fuera de banda: un operador o proceso no ligado a la app actualiza la misma tabla; el cliente solo relee el estado.
   No existe estado intermedio PENDING en el producto: la UI no ofrece un tercer flujo de “donación explícita”; el usuario sigue las instrucciones y la app refresca el registro según los criterios de temporización definidos en 10 y luego 30 segundos siempre (enfoco de ventana) sucesivamente.
+  - Esquema de la base de datos en Supabase:
+  ## Table `licenses`
+
+  ### Columns
+
+  | Name | Type | Constraints |
+  |------|------|-------------|
+  | `id` | `int8` | Primary Identity |
+  | `created_at` | `timestamptz` |  |
+  | `hardware_id` | `varchar` |  Nullable Unique |
+  | `access_granted` | `varchar` |  Nullable |
+  | `supporter_name` | `varchar` |  Nullable |
+  | `supporter_email` | `varchar` |  Nullable |
+  | `telegram_chat_id` | `int8` |  Nullable |
+
 
 
 ## 3. UI/UX Specifications and Navigation
@@ -164,7 +179,7 @@
       - Categoria 1, Categoria 2, Categoria 3 y Categoria 4.
       - Algunas Categorias como la 1 se pueden llegar a subdividir, por ejemplo: Zona delantera (categoría 1) pero agrupalas y consideralas simplemente como su categoria padre en este caso "Zona delantera (categoría 1)" se debe tratar co Categoría 1.
       - Las preferencias por Categorias tiene un orden de importancia, si se elige primero la Categoria 3 y luego la Categoria 2 se debe priorizar la selección de la Categoria 3 sobre la 2. Si solo hay un boleto disponible para la Categoria 3 se selecciona y se agrega al carrito y se completa con otras categorias según la prioridad de categorias hasta completar el valor de quantity en config.yaml. Si quantity no se logra completar por falta de disponibilidad entonces se procede a continuar el flujo de manera normal.
-    - [] El limite de precio es un campo de texto en USD dolares que permite excluir aquellos boletos que superan el precio limite. Dependiendo de la cuenta, el precio puede aparecer en MXN o USD o Dolares Canadienses y se tiene que hacer la conversión según corresponda para filtrar correctamente. 
+    - [] El limite de precio es un campo de texto en USD dolares que permite excluir aquellos boletos que superan el precio limite. Dependiendo de la cuenta, el precio puede aparecer en MXN o USD o Dolares Canadienses y se tiene que hacer la conversión según corresponda para filtrar correctamente. La información para la conversión se encuentra en config.yaml en la entrada currency_rates donde se encuentran los valores para convertir las monedas USD, MXN y CAD.
     - [] Crea el Dashboard Principal con un componente LogConsole (scrollable) y la opción de Iniciar con el sistema.
     - Muestra en la configuración el valor de ID único de hardware de manera que el usuario lo pueda visualizar y copiar.
     - [] Implementa un chequeo a un endpoint de control remoto en Supabase usando un ID único de hardware. Si el ID no existe entonces lo inserta con hardware_id = <ID único de hardware>, access_granted = 'LIMITED' y tickets_secured = 0, y si ya existia previamente valida si access_granted = 'FULL' entonces permite usar la aplicación completamente y max_tickets_secured = 40 y desactiva las opciones de monetización. Si access_granted = 'LIMITED' entonces mantiene habilitadas las opciones de monetización y permite usar la aplicación hasta que logre agregar 1 boleto a su carrito (tickets_secured == 1). El estado debe ser guardado en Supabase y no debe modificarse localmente. Solo debe actualizarse el estado local de la aplicación leyendo el estado desde Supabase. La estrategia de polling es de 30 segundos. Usa el ID único de hardware para identificar al usuario."

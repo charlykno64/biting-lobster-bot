@@ -93,6 +93,7 @@ Otros requerimientos:
   mejorar escalabilidad multiusuario y consistencia entre sesiones.
 - Puede obtener un boleto adicional viendo 2 anuncios (solo puede conseguir 1 más como maximo)
 - Empaquetado para MacOS con Nuitka.
+- Heartbeat de sincronización en Dashboard (timestamp de última consulta + evento periódico de estado) para depuración y visibilidad operativa.
 
 **Won't Have (Ver sección 9).**
 
