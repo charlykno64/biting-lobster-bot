@@ -5,7 +5,7 @@
 - **Lenguaje:** Python 3.11+.
 - **Arquitectura Base:** Clean Architecture adaptada a asistente manual + automatización controlada.
   - **Domain Layer:** Business logic pura (Entidades como Match, Ticket, UserSession), Use Cases (MonitorPrices, ReserveTicket) y abstracciones de notificación (NotifyUser).
-  - **Data Layer:** Implementaciones de PlaywrightBrowser vía CDP (conexión a Chrome abierto manualmente por el usuario), persistencia de sesiones en JSON y logging de errores. Repositorios para persistencia local (SQLite/JSON para cookies y configuración) y PlaywrightWrapper para la interacción web.
+  - **Data Layer:** Captura de sesión (Epic 1) con Playwright vía **CDP** contra Google Chrome abierto manualmente por el usuario; se persiste `storage_state` en `session.json`. El **HunterService (Epic 3) no usa CDP**: arranca una **nueva** instancia de Playwright **Chromium** con `headless=True`, **stealth** y `storage_state` cargado desde ese `session.json`, para interceptar XHR/JSON de forma silenciosa. Repositorios para persistencia local y logging de errores.
   - **Presentation Layer:** UI reactiva usando Flet (basado en Flutter) con arquitectura MVVM. Comunicación entre capas mediante inyección de dependencias simple.
 - **Concurrencia:** asyncio para el loop de monitoreo no bloqueante de la UI.
 
@@ -31,6 +31,7 @@
   }
 }
   - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en '.env'; cargar con python-dotenv.
+  - **Velocidad del Hunter (jitter):** en `config.yaml`, clave `hunter.speed` con valores `alta` | `media` | `baja` (por defecto **`baja`** en desarrollo). Cada valor define un rango de **retraso aleatorio uniforme entre pasos** (en segundos): `alta` 0.200–0.399 s, `media` 0.400–0.799 s, `baja` 0.800–1.200 s. Objetivo: no saturar el origen; la UI puede exponer el mismo control más adelante.
   Nota técnica: Gestión de variables de entorno (v1.0.0): Durante la primera versión, la aplicación utilizará exclusivamente el archivo local .env.dev para cargar secretos y parámetros sensibles (por ejemplo, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN).
   El archivo .env.dev es de uso local, no debe versionarse y debe estar excluido en .gitignore.
   El archivo .env.example se incorporará a partir de la versión v1.0.1 como plantilla sin secretos para estandarizar despliegue y onboarding técnico.
@@ -65,7 +66,7 @@
 ## 4. Business Logic and Algorithms
 - **Estrategia de Cacería (Hunter Algorithm):**
   1. Interceptación XHR: Playwright intercepta las respuestas JSON del API de la FIFA para detectar cambios de disponibilidad sin re-renderizar el DOM.
-  2. Jitter Dinámico: Intervalos de refresco basados en una función aleatoria gaussiana para evitar patrones detectables por WAF (Web Application Firewalls).
+  2. Jitter dinámico: intervalos de refresco entre pasos con **retraso aleatorio uniforme** dentro de un rango definido por `hunter.speed` en `config.yaml` (`alta` / `media` / `baja`; por defecto `baja` en desarrollo) para moderar la presión sobre el origen y reducir patrones rígidos.
   3. Auto-Carting: Al detectar disponibilidad, el script ejecuta un click simulado con coordenadas aleatorias dentro del botón "Add to Cart" para humanizar la interacción.
   4. URLS relevantes:
     - URL inicial: https://fwc26-shop-mex.tickets.fifa.com/secured/content en esta se debe hacer click en el botón "Comprar boletos" ejemplo: <a class="sc-TOsTZ FeKdn sc-gqjmRU g-Button g-Button-small g-Button-primary gaYhxh" href="https://fwc26-shop-mex.tickets.fifa.com/secured/selection/event/date?productId=10229225515651&amp;gtmStepTracking=true" aria-label="COMPRAR BOLETOS Copa Mundial de la FIFA 2026™"><span>COMPRAR BOLETOS</span></a>
@@ -191,11 +192,11 @@
   - Prompt para el Agente (Fase 3 - Hunter Service):
 "Implementa HunterService.py en /core usando asyncio.
     - [] Implementa HunterService.py en /core usando asyncio.
-    - [] Inicia Playwright con stealth y carga session.json. Usa headless=True.
-    - [] Navega a la URL de la tienda. Implementa interceptación XHR para leer las respuestas JSON de disponibilidad.
-    - [] Usa un 'Jitter' (retraso aleatorio gaussiano) entre peticiones para evitar baneos.
+    - [] **No usar CDP** en el Hunter: el `session.json` ya fue generado y validado en Epic 1 vía CDP contra Chrome del usuario. Aquí se inicia **nueva** instancia Playwright Chromium con **stealth** + **headless=True** y `browser.new_context(storage_state=... session.json)`. Documentar en UI/onboarding que **conviene cerrar Google Chrome** usado para la captura antes de iniciar la cacería (menos confusión, menos RAM, evita percepción de dos sesiones competidoras).
+    - [] Navega a la URL de la tienda. Implementa interceptación de respuestas XHR/fetch JSON del host FIFA para inferir disponibilidad sin depender solo del DOM.
+    - [] **Jitter** configurable en `config.yaml` → `hunter.speed`: `alta` (retraso aleatorio uniforme 200–399 ms entre pasos), `media` (400–799 ms), `baja` (800–1200 ms). **Default recomendado: `baja`** (desarrollo y primera implementación poco agresiva).
     - [] Al encontrar disponibilidad, navega al detalle del asiento. Selecciona 'Reservar el mejor sitio' y agrega quantity según disponibilidad y la prioridad de Categorias en config.yaml.
-    - [] Al leer el precio del JSON, pásalo por una nueva clase CurrencyConverter que lea las tasas de cambio de config.yaml y lo convierta a centavos de USD antes de compararlo con max_price_cents. Si el precio convertido es menor o igual al límite, procede al Auto-Carting.
+    - [] Al leer el precio del JSON, pásalo por CurrencyConverter (tasas en config.yaml) y conviértelo a centavos de USD antes de compararlo con max_price_cents. Si el precio convertido es menor o igual al límite, procede al Auto-Carting.
     - [] Busca el botón con id="book" y haz un clic simulado con coordenadas humanizadas y emite evento de Notificación de 'Boleto Asegurado'."
 - **Epic 4: Notificaciones y Handoff (Checkout)**
   - Historias de Usuario cubiertas:

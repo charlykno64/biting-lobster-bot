@@ -94,6 +94,7 @@ Otros requerimientos:
 - Puede obtener un boleto adicional viendo 2 anuncios (solo puede conseguir 1 más como maximo)
 - Empaquetado para MacOS con Nuitka.
 - Heartbeat de sincronización en Dashboard (timestamp de última consulta + evento periódico de estado) para depuración y visibilidad operativa.
+- Buscar boletos para varios países por orden de prioridad.
 
 **Won't Have (Ver sección 9).**
 

@@ -21,6 +21,7 @@ from core.hardware import get_hardware_id
 from core.startup_windows import set_start_on_boot
 from data.ConfigRepository import ConfigRepository
 from data.LicenseRepository import LicenseRepository
+from data.SessionManager import SessionManager
 
 
 TEAM_OPTIONS = [
@@ -160,6 +161,36 @@ class DashboardApp:
             ),
         )
 
+        session_path = self.project_root / "session.json"
+
+        async def capture_session_click() -> None:
+            self.log("Captura de sesion: conectando por CDP a Chrome (puerto 9222)...")
+            try:
+
+                def run_capture() -> dict[str, Any]:
+                    mgr = SessionManager(session_file=str(session_path))
+                    return mgr.capture_session()
+
+                result = await asyncio.to_thread(run_capture)
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"ERROR: no se pudo guardar session.json - {exc}")
+                self.page.update()
+                return
+
+            saved = Path(str(result.get("session_file", session_path)))
+            self.log(f"OK: session.json guardado en {saved.resolve()}")
+            val = result.get("validation") or {}
+            self.log(
+                "Validacion perfil FIFA: "
+                f"hogar_limite_4={val.get('household_limit_detected')}, "
+                f"restriccion_diaria={val.get('daily_restriction_detected')}"
+            )
+            if saved.is_file():
+                self.log(f"Verificado en disco: {saved.name} ({saved.stat().st_size} bytes). Listo para hunter_smoke.py.")
+            else:
+                self.log(f"AVISO: no se encontro {saved.name} en disco tras la captura.")
+            self.page.update()
+
         step2 = ft.Container(
             content=ft.Column(
                 [
@@ -168,6 +199,15 @@ class DashboardApp:
                         "No olvides validar Captcha y cualquier codigo enviado a tu correo electronico.",
                         size=13,
                         color=ft.Colors.GREY_300,
+                    ),
+                    ft.Text(
+                        "Cuando ya veas la tienda FIFA autenticada, pulsa capturar (Chrome con CDP debe seguir abierto).",
+                        size=12,
+                        color=ft.Colors.GREY_400,
+                    ),
+                    ft.Button(
+                        "Capturar y guardar session.json (CDP)",
+                        on_click=lambda e: self.page.run_task(capture_session_click),
                     ),
                 ]
             ),
@@ -263,6 +303,8 @@ class DashboardApp:
             quantity = max(1, int(quantity_field.value or "1"))
 
             start_on_boot = bool(self.config.get("app", {}).get("start_on_boot", False))
+            hunter_cfg = dict(self.config.get("hunter") or {})
+            hunter_cfg.setdefault("speed", "baja")
             updated = self.config_repo.update(
                 {
                     "search_criteria": {
@@ -272,6 +314,7 @@ class DashboardApp:
                         "preferred_categories": ordered,
                     },
                     "app": {"start_on_boot": start_on_boot},
+                    "hunter": hunter_cfg,
                 }
             )
             self.config = updated
@@ -300,7 +343,19 @@ class DashboardApp:
             ft.Container(
                 width=563,
                 padding=10,
-                content=ft.Column([step1, step2, step3, ft.Divider(), disclaimer], tight=False),
+                content=ft.Column(
+                    [
+                        step1,
+                        step2,
+                        step3,
+                        ft.Divider(),
+                        ft.Text("LogConsole", size=12, weight=ft.FontWeight.W_500),
+                        ft.Container(height=240, content=self.log_console),
+                        ft.Divider(),
+                        disclaimer,
+                    ],
+                    tight=False,
+                ),
             )
         )
         self.page.update()
