@@ -7,20 +7,22 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from playwright.async_api import Page, Response, async_playwright
+from playwright.async_api import Locator, Page, async_playwright
 from playwright_stealth import Stealth
 
 from core.currency import CurrencyConverter
+from core.hunter_prereqs import validate_hunter_search_objective
 
-TICKETS_HOME_URL = "https://fwc26-shop-mex.tickets.fifa.com/secured/content"
 FIFA_HOST = "tickets.fifa.com"
-# Tras COMPRAR BOLETOS: /secure/... o /secured/... + selection/event/date (a veces con /product/<id>).
+DEFAULT_SHOP_HOST = "https://fwc26-shop-mex.tickets.fifa.com"
+DEFAULT_PRODUCT_ID = "10229225515651"
+TICKETS_HOME_URL = "https://fwc26-shop-mex.tickets.fifa.com/secured/content"
 _DATE_SELECTION_RE = re.compile(
     r"https?://[^/]*tickets\.fifa\.com/(?:secure|secured)/selection/event/date",
     re.I,
 )
 
-# Jitter entre pasos: uniforme dentro del rango (segundos), según `hunter.speed` en config.yaml.
+# Jitter (segundos), según hunter.speed en config.yaml.
 _SPEED_BOUNDS_SEC: dict[str, tuple[float, float]] = {
     "alta": (0.200, 0.399),
     "media": (0.400, 0.799),
@@ -33,11 +35,22 @@ EventCallback = Callable[[str, dict[str, Any]], Any]
 
 class HunterService:
     """
-    Motor de cacería asíncrono: **no usa CDP**. Tras capturar la sesión con Chrome+CDP (Epic 1) y
-    `session.json`, aquí se arranca **Chromium nuevo** con stealth + headless y `storage_state`.
-    Conviene que el usuario **cierre Chrome** usado para la captura antes de iniciar el hunter.
+    Cacería sin CDP: Chromium headless + stealth + session.json.
 
-    Jitter configurable: `hunter.speed` = alta | media | baja (default baja).
+    Entrada **natural** (por defecto): `/secured/content` → clic COMPRAR BOLETOS →
+    pantalla de fechas; luego, si la URL no es aún la canónica del listado SSR,
+    `goto(match_list_url())`. Así el flujo se parece al usuario y el DOM queda
+    alineado con la URL `/secure/.../date/product/<id>/lang/<lang>`.
+
+    Con `hunter.skip_secured_content: true` se salta la tienda y se abre solo
+    `match_list_url()` (útil para pruebas).
+
+    Tras elegir partido, por defecto se hace `goto` a
+    `.../seat/performance/<perfId>/table/<seat_table_index>/lang/...` para evitar
+    el mapa lento; con `hunter.use_seat_map_entry: true` se usa el clic del listado
+    (flujo con mapa + botón Mejor sitio).
+
+    Solo `wait_until=\"domcontentloaded\"` en goto/reload — nunca networkidle.
     """
 
     def __init__(
@@ -53,18 +66,158 @@ class HunterService:
         self.session_path = self.project_root / session_file
         self._on_event = on_event
         self._stop = asyncio.Event()
-        self._bg_tasks: set[asyncio.Task[Any]] = set()
-        self._availability_event = asyncio.Event()
-        self._last_price_hint: dict[str, Any] | None = None
 
     def request_stop(self) -> None:
         self._stop.set()
 
+    def _hunter_cfg(self) -> dict[str, Any]:
+        return self.config.get("hunter") or {}
+
     def _criteria(self) -> dict[str, Any]:
         return self.config.get("search_criteria", {}) or {}
 
+    def match_list_url(self) -> str:
+        h = self._hunter_cfg()
+        host = str(h.get("shop_host", DEFAULT_SHOP_HOST)).rstrip("/")
+        product_id = str(h.get("product_id", DEFAULT_PRODUCT_ID))
+        lang = str(h.get("lang", "es"))
+        return f"{host}/secure/selection/event/date/product/{product_id}/lang/{lang}"
+
+    def _canonical_list_path_marker(self) -> str:
+        pid = str(self._hunter_cfg().get("product_id", DEFAULT_PRODUCT_ID))
+        return f"/product/{pid}/"
+
+    def _seat_table_url(self, performance_id: str, table_index: int | None = None) -> str:
+        h = self._hunter_cfg()
+        host = str(h.get("shop_host", DEFAULT_SHOP_HOST)).rstrip("/")
+        lang = str(h.get("lang", "es"))
+        idx = table_index if table_index is not None else int(h.get("seat_table_index", 1))
+        return (
+            f"{host}/secure/selection/event/seat/performance/{performance_id}"
+            f"/table/{idx}/lang/{lang}"
+        )
+
+    async def _click_first_visible_in_locators(
+        self, entries: list[tuple[str, Locator]], timeout: int
+    ) -> bool:
+        """Prueba cada locator en orden; solo hace clic en candidatos visibles."""
+        for label, loc in entries:
+            n = await loc.count()
+            for i in range(n):
+                cand = loc.nth(i)
+                try:
+                    if not await cand.is_visible():
+                        continue
+                    await cand.click(timeout=timeout)
+                    self._emit("log", {"message": f"COMPRAR BOLETOS: {label} (coincidencias={n}, i={i})."})
+                    return True
+                except Exception:
+                    continue
+        return False
+
+    def _href_looks_like_date_selection(self, href: str) -> bool:
+        h = href.lower()
+        return (
+            "selection/event/date" in h
+            or "productid=" in h
+            or "/product/" in h  # path-style /date/product/<id>/...
+        )
+
+    async def _click_comprar_boletos(self, page: Page) -> None:
+        timeout = 60_000
+        # FIFA mezcla /secure/ y /secured/; el CTA real suele llevar selection/event/date en href.
+        # No usar .first sin comprobar visibilidad: el primer match puede ser role=menuitem oculto
+        # con href=/secured/content (menú hamburguesa).
+        strategies: list[tuple[str, Locator]] = [
+            (
+                "stx-MainActionArea+date",
+                page.locator('a.stx-MainActionArea[href*="selection/event/date"]'),
+            ),
+            (
+                "g-Button-primary+date",
+                page.locator('a.g-Button-primary[href*="selection/event/date"]'),
+            ),
+            (
+                "stx-ProductCard+date",
+                page.locator('div[class*="stx-ProductCard"] a[href*="selection/event/date"]'),
+            ),
+            (
+                "any-a-selection-date",
+                page.locator('a[href*="selection/event/date"]'),
+            ),
+        ]
+        if await self._click_first_visible_in_locators(strategies, timeout):
+            return
+
+        link = page.get_by_role("link", name=re.compile(r"comprar\s+boletos", re.I))
+        n_link = await link.count()
+        for i in range(n_link):
+            cand = link.nth(i)
+            try:
+                if not await cand.is_visible():
+                    continue
+                href = (await cand.get_attribute("href")) or ""
+                if not self._href_looks_like_date_selection(href):
+                    continue
+                await cand.click(timeout=timeout)
+                self._emit("log", {"message": f"COMPRAR BOLETOS: link por rol visible (i={i})."})
+                return
+            except Exception:
+                continue
+
+        text_any = page.locator("a").filter(has_text=re.compile(r"comprar\s+boletos", re.I))
+        n_txt = await text_any.count()
+        for i in range(n_txt):
+            cand = text_any.nth(i)
+            try:
+                if not await cand.is_visible():
+                    continue
+                href = (await cand.get_attribute("href")) or ""
+                if not self._href_looks_like_date_selection(href):
+                    continue
+                await cand.click(timeout=timeout)
+                self._emit("log", {"message": f"COMPRAR BOLETOS: texto + href seleccion (i={i})."})
+                return
+            except Exception:
+                continue
+
+        list_url = self.match_list_url()
+        self._emit(
+            "log",
+            {
+                "message": (
+                    "COMPRAR BOLETOS: sin CTA visible hacia fechas; se abre el listado directamente "
+                    f"(headless/DOM): {list_url[:100]}..."
+                ),
+            },
+        )
+        await page.goto(list_url, wait_until="domcontentloaded", timeout=90_000)
+
+    async def _enter_match_list_page(self, page: Page) -> str:
+        """
+        Devuelve la URL canónica del listado usada para el bucle (match_list_url).
+        """
+        list_url = self.match_list_url()
+        skip_home = bool(self._hunter_cfg().get("skip_secured_content", False))
+        if skip_home:
+            await page.goto(list_url, wait_until="domcontentloaded", timeout=90_000)
+            self._emit("log", {"message": f"Entrada directa al listado (skip_secured_content): {list_url[:100]}..."})
+            return list_url
+
+        await page.goto(TICKETS_HOME_URL, wait_until="domcontentloaded", timeout=90_000)
+        self._emit("log", {"message": f"Tienda inicial: {TICKETS_HOME_URL}"})
+        await self._click_comprar_boletos(page)
+        await page.wait_for_url(_DATE_SELECTION_RE, timeout=90_000)
+        self._emit("log", {"message": f"Tras COMPRAR BOLETOS: {page.url[:140]}..."})
+
+        if self._canonical_list_path_marker() not in page.url:
+            await page.goto(list_url, wait_until="domcontentloaded", timeout=90_000)
+            self._emit("log", {"message": "Normalizado a URL canónica del listado SSR (product/lang)."})
+
+        return list_url
+
     def _normalized_speed_key(self) -> str:
-        raw = (self.config.get("hunter") or {}).get("speed", "baja")
+        raw = self._hunter_cfg().get("speed", "baja")
         if not isinstance(raw, str):
             return "baja"
         key = raw.strip().lower()
@@ -75,7 +228,6 @@ class HunterService:
         return _SPEED_BOUNDS_SEC[self._normalized_speed_key()]
 
     def jitter_profile(self) -> dict[str, Any]:
-        """Resumen de `hunter.speed` para diagnóstico o scripts de humo."""
         lo, hi = self._jitter_bounds_sec()
         key = self._normalized_speed_key()
         return {
@@ -93,7 +245,7 @@ class HunterService:
             result = self._on_event(event_type, payload)
             if inspect.isawaitable(result):
                 asyncio.create_task(result)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — no tumbar el hunter por UI
+        except Exception as exc:  # noqa: BLE001
             _ = exc
 
     async def _jitter(self) -> None:
@@ -102,109 +254,9 @@ class HunterService:
             lo, hi = hi, lo
         await asyncio.sleep(random.uniform(lo, hi))
 
-    def _schedule_response(self, response: Response) -> None:
-        task = asyncio.create_task(self._handle_response(response))
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
-
-    async def _handle_response(self, response: Response) -> None:
-        if self._stop.is_set():
-            return
-        if FIFA_HOST not in response.url:
-            return
-        if response.status == 403:
-            self._emit("error", {"message": "HTTP 403 en respuesta FIFA", "recoverable": True})
-            return
-        rt = response.request.resource_type
-        if rt not in ("xhr", "fetch"):
-            return
-        ct = (response.headers or {}).get("content-type", "")
-        if "json" not in ct.lower():
-            return
-        try:
-            data = await response.json()
-        except Exception:
-            return
-        if self._json_suggests_availability(data):
-            hint = self._extract_price_hint(data)
-            if hint:
-                self._last_price_hint = hint
-            self._availability_event.set()
-            self._emit(
-                "availability",
-                {"url": response.url, "hint_keys": list(hint.keys()) if hint else []},
-            )
-
-    def _json_suggests_availability(self, obj: Any) -> bool:
-        text_blob = self._json_blob_lower(obj)
-        if not text_blob:
-            return False
-        blocked = ("no disponible", "sold out", "agotado", "unavailable")
-        if any(b in text_blob for b in blocked):
-            return False
-        positive = (
-            "available",
-            "disponible",
-            "inventory",
-            "remaining",
-            "quantity",
-            "stock",
-            "seats",
-            "asientos",
-        )
-        return any(p in text_blob for p in positive)
-
-    def _json_blob_lower(self, obj: Any, depth: int = 0) -> str:
-        if depth > 12:
-            return ""
-        if isinstance(obj, dict):
-            parts: list[str] = []
-            for k, v in obj.items():
-                parts.append(str(k).lower())
-                parts.append(self._json_blob_lower(v, depth + 1))
-            return " ".join(parts)
-        if isinstance(obj, list):
-            return " ".join(self._json_blob_lower(x, depth + 1) for x in obj[:80])
-        if isinstance(obj, str):
-            return obj.lower()
-        return ""
-
-    def _extract_price_hint(self, obj: Any) -> dict[str, Any] | None:
-        best: dict[str, Any] | None = None
-        conv = CurrencyConverter(self.config)
-
-        def walk(node: Any, depth: int) -> None:
-            nonlocal best
-            if depth > 14:
-                return
-            if isinstance(node, dict):
-                keys = {str(k).lower(): k for k in node}
-                lk = set(keys)
-                amount = None
-                cur = None
-                for cand in ("totalprice", "price", "amount", "minprice", "maxprice"):
-                    if cand in lk:
-                        val = node[keys[cand]]
-                        if isinstance(val, (int, float)):
-                            amount = float(val)
-                        elif isinstance(val, str):
-                            try:
-                                amount, cur = conv.parse_price_text(val)
-                            except Exception:
-                                pass
-                for cand in ("currency", "currencycode", "currency_iso", "currencycodeiso"):
-                    if cand in lk and isinstance(node[keys[cand]], str):
-                        cur = str(node[keys[cand]])
-                if amount is not None:
-                    best = {"amount": amount, "currency": (cur or "USD").upper()}
-                for v in node.values():
-                    walk(v, depth + 1)
-            elif isinstance(node, list):
-                for item in node[:120]:
-                    walk(item, depth + 1)
-
-        walk(obj, 0)
-        return best
+    def _target_team_ids(self) -> list[str]:
+        teams = self._criteria().get("target_teams") or []
+        return [str(t) for t in teams]
 
     def _price_within_budget(self, hint: dict[str, Any] | None) -> bool:
         if not hint:
@@ -217,138 +269,255 @@ class HunterService:
         except Exception:
             return True
 
-    async def _click_comprar_boletos(self, page: Page) -> None:
-        """
-        En /secured/content la card de producto expone el mismo destino por:
-        - enlace principal (stx-MainActionArea + productId),
-        - botón COMPRAR BOLETOS (g-Button-primary + productId),
-        - cualquier <a> con productId dentro de stx-ProductCard.
-        """
-        timeout = 60_000
-        strategies: list[tuple[str, Any]] = [
-            (
-                "stx-MainActionArea+productId",
-                page.locator(
-                    'a.stx-MainActionArea[href*="/secured/selection/event/date"][href*="productId="]'
-                ),
-            ),
-            (
-                "g-Button-primary+productId",
-                page.locator(
-                    'a.g-Button-primary[href*="/secured/selection/event/date"][href*="productId="]'
-                ),
-            ),
-            (
-                "stx-ProductCard a+productId",
-                page.locator(
-                    'div[class*="stx-ProductCard"] a[href*="/secured/selection/event/date"][href*="productId="]'
-                ),
-            ),
-        ]
-        for label, loc in strategies:
-            try:
-                n = await loc.count()
-                if n == 0:
-                    continue
-                await loc.first.click(timeout=timeout)
-                self._emit("log", {"message": f"COMPRAR BOLETOS: clic con estrategia {label!r} (coincidencias={n})."})
-                return
-            except Exception:
-                continue
-
-        link = page.get_by_role("link", name=re.compile(r"comprar\s+boletos", re.I))
-        if await link.count() > 0:
-            await link.first.click(timeout=timeout)
-            self._emit("log", {"message": "COMPRAR BOLETOS: clic por aria-label (fallback)."})
-            return
-        alt = page.locator("a").filter(has_text=re.compile(r"COMPRAR\s+BOLETOS", re.I))
-        await alt.first.click(timeout=timeout)
-        self._emit("log", {"message": "COMPRAR BOLETOS: clic por texto visible (fallback)."})
-
-    async def _wait_date_selection_screen(self, page: Page) -> None:
-        await page.wait_for_url(_DATE_SELECTION_RE, timeout=90_000)
-        self._emit("log", {"message": f"Pantalla fecha/equipo: {page.url[:140]}..."})
-
-    async def _select_team(self, page: Page) -> None:
-        teams = self._criteria().get("target_teams") or []
-        if not teams:
-            raise RuntimeError("search_criteria.target_teams vacío en config.")
-        team_id = str(teams[0])
-        sel = page.locator("#team")
-        await sel.wait_for(state="attached", timeout=60_000)
-        await sel.scroll_into_view_if_needed()
+    def _hint_from_amount_attrs(self, raw: str | None, cls: str) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        currency = "USD"
+        for code in ("MXN", "USD", "CAD"):
+            if f"amount_{code}" in cls:
+                currency = code
+                break
         try:
-            await sel.wait_for(state="visible", timeout=8_000)
-        except Exception:
-            pass
-        await sel.select_option(value=team_id, timeout=30_000)
+            minor = int(str(raw).strip())
+        except ValueError:
+            return None
+        amount_major = minor / 1000.0
+        return {"amount": amount_major, "currency": currency}
+
+    async def _price_from_amount_span(self, span: Locator) -> dict[str, Any] | None:
+        if await span.count() == 0:
+            return None
+        raw = await span.get_attribute("data-amount")
+        cls = await span.get_attribute("class") or ""
+        return self._hint_from_amount_attrs(raw, cls)
+
+    @staticmethod
+    def _row_availability_class(class_attr: str) -> str | None:
+        if not class_attr:
+            return None
+        if "sold_out" in class_attr:
+            return "sold_out"
+        parts = class_attr.split()
+        if "available" in parts:
+            return "available"
+        return None
+
+    async def _price_from_row(self, row: Locator) -> dict[str, Any] | None:
+        return await self._price_from_amount_span(row.locator("span.amount[data-amount]").first)
+
+    @staticmethod
+    def _category_number_from_th_text(text: str) -> int | None:
+        m = re.search(r"categor[ií]a\s*(\d)", text, re.I)
+        if m:
+            return int(m.group(1))
+        return None
+
+    async def _row_has_hospitality_cta(self, row: Locator) -> bool:
+        loc = row.get_by_text(re.compile(r"hospitality", re.I))
+        return await loc.count() > 0
+
+    async def _find_priority_match_row(self, page: Page) -> tuple[Locator, dict[str, Any]] | None:
+        """Primera fila li.performance: equipos (orden target_teams) y disponibilidad; precio se valida en tabla de categorías."""
+        target_ids = self._target_team_ids()
+        if not target_ids:
+            raise RuntimeError("search_criteria.target_teams vacío en config.")
+
+        rows = page.locator("li.performance")
+        n = await rows.count()
+        for priority_tid in target_ids:
+            for i in range(n):
+                if self._stop.is_set():
+                    return None
+                row = rows.nth(i)
+                cls = await row.get_attribute("class") or ""
+                if self._row_availability_class(cls) != "available":
+                    continue
+                host = await row.get_attribute("data-host-team-id")
+                guest = await row.get_attribute("data-opposing-team-id")
+                ids = {host, guest}
+                if priority_tid not in ids:
+                    continue
+                if await self._row_has_hospitality_cta(row):
+                    continue
+                perf_id = await row.get_attribute("id")
+                return row, {
+                    "target_team_id": priority_tid,
+                    "host_team_id": host,
+                    "opposing_team_id": guest,
+                    "performance_id": perf_id,
+                }
+        return None
+
+    async def _open_match_row(self, page: Page, row: Locator, meta: dict[str, Any]) -> None:
+        perf_id = meta.get("performance_id")
+        if not perf_id:
+            raise RuntimeError("performance_id faltante en fila de partido (id del li.performance).")
         self._emit(
             "log",
             {
                 "message": (
-                    f"Equipo seleccionado (option value={team_id}); "
-                    "listado puede actualizarse por XHR sin recarga completa."
+                    f"Partido elegido: perfId={perf_id} "
+                    f"equipo objetivo={meta.get('target_team_id')} "
+                    f"(local={meta.get('host_team_id')} visita={meta.get('opposing_team_id')})."
                 ),
             },
         )
+        use_map = bool(self._hunter_cfg().get("use_seat_map_entry", False))
+        if use_map:
+            await row.scroll_into_view_if_needed()
+            await row.click(timeout=45_000)
+            await page.wait_for_url(
+                re.compile(r"/(?:secure|secured)/selection/event/seat", re.I),
+                timeout=90_000,
+            )
+            return
 
-    async def _open_first_actionable_match(self, page: Page) -> bool:
-        links = page.locator('a[href*="/selection/event"]')
-        n = await links.count()
-        for i in range(n):
-            if self._stop.is_set():
-                return False
-            link = links.nth(i)
-            try:
-                container = link.locator(
-                    "xpath=ancestor::*[self::article or self::tr or self::li or self::div][1]"
-                )
-                blob = (await container.inner_text()).lower() if await container.count() else ""
-            except Exception:
-                blob = ""
-            if "no disponible" in blob:
-                continue
-            await link.click(timeout=45_000)
-            return True
-        return False
+        target = self._seat_table_url(str(perf_id))
+        self._emit(
+            "log",
+            {
+                "message": (
+                    "Entrada directa a vista tabla (evita mapa): "
+                    f"{target[:120]}..."
+                ),
+            },
+        )
+        await page.goto(target, wait_until="domcontentloaded", timeout=90_000)
 
-    async def _click_reservar_mejor_sitio(self, page: Page) -> None:
-        btn = page.get_by_text(re.compile(r"reservar\s+el\s+mejor\s+sitio", re.I))
+    async def _maybe_click_mejor_sitio(self, page: Page) -> None:
+        """Solo en flujo con mapa; en /table/N la UI ya suele estar en la vista rápida."""
+        if "/table/" in page.url.lower():
+            self._emit("log", {"message": "Ruta /table/: se omite clic en Mejor sitio."})
+            return
+        btn = page.get_by_text(re.compile(r"(reservar\s+el\s+)?mejor\s+sitio", re.I))
+        if await btn.count() == 0:
+            self._emit("log", {"message": "Sin boton Mejor sitio; se continua el flujo."})
+            return
         await btn.first.click(timeout=60_000)
 
-    async def _pick_category_by_priority(self, page: Page) -> None:
+    async def _pick_category_table_row_and_quantity(self, page: Page) -> dict[str, Any] | None:
+        """
+        Tabla de categorías: primer th = categoría; overlay category_unavailable_overlay = sin stock;
+        primer td = select eventFormData[n].quantity; segundo td = precio (data-amount).
+        Prioridad: preferred_categories. Cantidad: máximo valor de option <= quantity en config.
+        """
         preferred = self._criteria().get("preferred_categories") or [1, 2, 3, 4]
-        for cat in preferred:
-            if self._stop.is_set():
-                return
-            pattern = re.compile(rf"categor[ií]a\s*{cat}\b", re.I)
-            loc = page.locator("a, button, [role='button'], label, div, span").filter(has_text=pattern)
-            if await loc.count() == 0:
-                continue
-            first = loc.first
-            try:
-                if await first.is_enabled():
-                    await first.click(timeout=20_000)
-                    self._emit("log", {"message": f"Categoría priorizada clicada: {cat}"})
-                    return
-            except Exception:
-                continue
-        self._emit("log", {"message": "No se encontró categoría clickeable; se intenta flujo por defecto."})
+        qty_limit = max(1, int(self._criteria().get("quantity", 1)))
+        table_rows = page.locator("table tr")
+        n = await table_rows.count()
 
-    async def _set_quantity_one(self, page: Page) -> None:
-        qty = page.locator("select[name*='quantity' i], select[id*='quantity' i]").first
-        if await qty.count():
-            try:
-                await qty.select_option("1")
-            except Exception:
-                pass
+        for cat_priority in preferred:
+            if self._stop.is_set():
+                return None
+            for i in range(n):
+                row = table_rows.nth(i)
+                th0 = row.locator("th").first
+                if await th0.count() == 0:
+                    continue
+                if await th0.locator("div.category_unavailable_overlay").count() > 0:
+                    continue
+                th_text = await th0.inner_text()
+                cn = self._category_number_from_th_text(th_text)
+                if cn != cat_priority:
+                    continue
+
+                tds = row.locator("td")
+                if await tds.count() < 2:
+                    continue
+                sel = tds.nth(0).locator('select[id*="quantity"]')
+                if await sel.count() == 0:
+                    continue
+
+                price_span = tds.nth(1).locator("span.amount[data-amount]").first
+                hint = await self._price_from_amount_span(price_span)
+                if hint is None:
+                    self._emit("log", {"message": f"Tabla: categoria {cn} sin precio; siguiente fila."})
+                    continue
+                if not self._price_within_budget(hint):
+                    self._emit(
+                        "log",
+                        {
+                            "message": (
+                                f"Tabla: categoria {cn} precio fuera de max_price_cents "
+                                f"({hint.get('amount')} {hint.get('currency')}); siguiente."
+                            ),
+                        },
+                    )
+                    continue
+
+                opts = sel.locator("option")
+                oc = await opts.count()
+                numeric_values: list[int] = []
+                for j in range(oc):
+                    opt = opts.nth(j)
+                    v = await opt.get_attribute("value")
+                    if v is None or str(v).strip() == "":
+                        continue
+                    try:
+                        q = int(str(v).strip())
+                    except ValueError:
+                        continue
+                    if q < 0:
+                        continue
+                    if await opt.get_attribute("disabled") is not None:
+                        continue
+                    numeric_values.append(q)
+
+                candidates = [q for q in numeric_values if q <= qty_limit]
+                if not candidates:
+                    self._emit(
+                        "log",
+                        {"message": f"Tabla: categoria {cn} sin opcion de cantidad <= {qty_limit}; siguiente."},
+                    )
+                    continue
+                chosen = max(candidates)
+
+                await sel.scroll_into_view_if_needed()
+                await sel.select_option(value=str(chosen))
+                await sel.evaluate(
+                    """el => {
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }"""
+                )
+                self._emit(
+                    "log",
+                    {
+                        "message": (
+                            f"Tabla categorias: categoria {cn}, cantidad {chosen}, "
+                            f"precio OK ({hint.get('amount')} {hint.get('currency')})."
+                        ),
+                    },
+                )
+                return {"price_hint": hint, "quantity": chosen, "category": cn}
+
+        return None
 
     async def _humanized_click_book(self, page: Page) -> None:
-        book = page.locator("#book")
-        await book.wait_for(state="visible", timeout=90_000)
-        box = await book.bounding_box()
+        primary = page.locator("a#book")
+        if await primary.count() > 0:
+            target = primary.first
+        else:
+            candidates = page.locator('a[id^="book"]')
+            n = await candidates.count()
+            target = None
+            for i in range(n):
+                el = candidates.nth(i)
+                try:
+                    txt = (await el.inner_text()).lower()
+                    href = ((await el.get_attribute("href")) or "").lower()
+                except Exception:
+                    continue
+                if "hospitality" in txt or "hospitality" in href:
+                    continue
+                target = el
+                break
+            if target is None:
+                target = page.locator("#book").first
+        await target.wait_for(state="visible", timeout=90_000)
+        box = await target.bounding_box()
         if not box:
-            await book.click(timeout=30_000)
+            await target.click(timeout=30_000)
             return
         pad_x = min(12.0, max(4.0, box["width"] * 0.15))
         pad_y = min(10.0, max(3.0, box["height"] * 0.2))
@@ -360,23 +529,42 @@ class HunterService:
         u = page.url.lower()
         return "login" in u and FIFA_HOST in u
 
+    async def _page_fifa_bot_wall(self, page: Page) -> bool:
+        try:
+            body = (await page.locator("body").inner_text(timeout=8_000)).lower()
+        except Exception:
+            return False
+        markers = (
+            "este bloqueo",
+            "sobrehumana",
+            "sobrehumano",
+            "un robot",
+            "misma red",
+            "dificultades para acceder",
+            "restringido temporalmente",
+            "acceso está restringido",
+            "acceso esta restringido",
+        )
+        return any(m in body for m in markers)
+
     async def run_loop(self) -> None:
-        """Bucle principal hasta stop, auth requerida o evento ticket_secured."""
         if not self.session_path.is_file():
             self._emit("error", {"message": f"No existe {self.session_path}", "recoverable": False})
             return
 
+        ok, prereq_msg = validate_hunter_search_objective(self.config)
+        if not ok:
+            self._emit("error", {"message": prereq_msg, "recoverable": False})
+            return
+
         self._stop.clear()
-        self._availability_event.clear()
-        self._last_price_hint = None
 
         self._emit(
             "log",
             {
                 "message": (
-                    "HunterService: Chromium headless + stealth, storage_state=session.json (sin CDP). "
-                    f"Velocidad/jitter: {self._normalized_speed_key()}. "
-                    "Cierra Google Chrome de la captura si sigue abierto para liberar recursos."
+                    "HunterService: headless + stealth + session.json; "
+                    f"domcontentloaded only; jitter={self._normalized_speed_key()}."
                 ),
             },
         )
@@ -390,71 +578,90 @@ class HunterService:
                     locale="es-MX",
                 )
                 page = await context.new_page()
-                page.on("response", self._schedule_response)
 
-                await page.goto(TICKETS_HOME_URL, wait_until="domcontentloaded", timeout=90_000)
-                await self._jitter()
+                init_delay = float(self._hunter_cfg().get("initial_delay_sec", 3.5))
+                if init_delay > 0:
+                    self._emit(
+                        "log",
+                        {
+                            "message": (
+                                f"Pausa inicial {init_delay}s antes de tocar FIFA "
+                                "(reduce patron 'sobrehumano'; cierra Chrome de captura si sigue abierto)."
+                            ),
+                        },
+                    )
+                    await asyncio.sleep(init_delay)
+
+                list_url = await self._enter_match_list_page(page)
                 if await self._page_needs_auth(page):
                     self._emit("auth_required", {"url": page.url})
                     await browser.close()
                     return
-
-                await self._click_comprar_boletos(page)
-                await self._wait_date_selection_screen(page)
-                await self._jitter()
-                await self._select_team(page)
-                await self._jitter()
+                if await self._page_fifa_bot_wall(page):
+                    self._emit(
+                        "error",
+                        {
+                            "message": (
+                                "FIFA: pantalla de bloqueo / anti-bot detectada. Suele pasar si Chrome de "
+                                "captura sigue abierto con la misma sesion, o si abres la misma URL en dos "
+                                "navegadores a la vez. Cierra Chrome, espera unos minutos, vuelve a capturar "
+                                "session.json si hace falta y reintenta (sube hunter.initial_delay_sec si persiste)."
+                            ),
+                            "recoverable": True,
+                            "url": page.url,
+                        },
+                    )
+                    await browser.close()
+                    return
 
                 while not self._stop.is_set():
                     if await self._page_needs_auth(page):
                         self._emit("auth_required", {"url": page.url})
                         break
 
+                    found = await self._find_priority_match_row(page)
+                    if found is None:
+                        self._emit("log", {"message": "Sin partido que cumpla criterios (DOM); recarga tras jitter."})
+                        await self._jitter()
+                        await page.reload(wait_until="domcontentloaded", timeout=90_000)
+                        continue
+
+                    row, meta = found
+
                     try:
-                        await asyncio.wait_for(self._availability_event.wait(), timeout=45.0)
-                    except asyncio.TimeoutError:
-                        self._emit("log", {"message": "Sin señal XHR reciente; recargando listado."})
-                        await page.reload(wait_until="domcontentloaded")
+                        await self._open_match_row(page, row, meta)
                         await self._jitter()
-                        continue
-
-                    self._availability_event.clear()
-                    if not self._price_within_budget(self._last_price_hint):
-                        self._emit(
-                            "log",
-                            {"message": "Disponibilidad detectada pero fuera de max_price_cents; se continúa."},
-                        )
+                        await self._maybe_click_mejor_sitio(page)
                         await self._jitter()
-                        continue
 
-                    opened = await self._open_first_actionable_match(page)
-                    if not opened:
+                        pick = await self._pick_category_table_row_and_quantity(page)
+                        if pick is None:
+                            raise RuntimeError(
+                                "Tabla de categorias: ninguna fila cumple categoria, precio y cantidad."
+                            )
+                        last_hint = pick["price_hint"]
+                        qty_chosen = int(pick["quantity"])
+
                         await self._jitter()
-                        continue
-
-                    await self._jitter()
-                    await self._click_reservar_mejor_sitio(page)
-                    await self._jitter()
-                    await self._pick_category_by_priority(page)
-                    await self._set_quantity_one(page)
-                    await self._jitter()
-
-                    qty_target = max(1, int(self._criteria().get("quantity", 1)))
-                    for _ in range(qty_target):
-                        if self._stop.is_set():
-                            break
                         await self._humanized_click_book(page)
                         await self._jitter()
 
-                    await context.storage_state(path=str(self.session_path))
-                    self._emit(
-                        "ticket_secured",
-                        {
-                            "message": "Boleto Asegurado",
-                            "quantity": qty_target,
-                            "price_hint": self._last_price_hint,
-                        },
-                    )
+                        await context.storage_state(path=str(self.session_path))
+                        self._emit(
+                            "ticket_secured",
+                            {
+                                "message": "Boleto Asegurado",
+                                "quantity": qty_chosen,
+                                "price_hint": last_hint,
+                                "performance_id": meta.get("performance_id"),
+                                "category": pick.get("category"),
+                            },
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        self._emit("log", {"message": f"Error en flujo asiento/carrito: {exc}; reintento tras recarga."})
+                        await self._jitter()
+                        await page.goto(list_url, wait_until="domcontentloaded", timeout=90_000)
+                        continue
                     break
 
                 await browser.close()

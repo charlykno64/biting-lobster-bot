@@ -31,6 +31,11 @@
   }
 }
   - config.yaml: Preferencias de usuario y límites de búsqueda. Secretos (Supabase, Telegram) solo en '.env'; cargar con python-dotenv.
+  - **Chrome CDP (onboarding / captura, `app` en config.yaml):**
+    - `biting_lobster_chrome_profile`: ruta absoluta de `--user-data-dir` para «Iniciar Chrome» (CDP, puerto 9222); por defecto `C:\BitingLobsterChromeProfile`.
+    - `chrome_profile_runs_root`: directorio padre para perfiles efímeros cuando `requires_new_chrome_profile` es `true`.
+    - `requires_new_chrome_profile`: si es `true`, cada arranque CDP usa una subcarpeta nueva bajo `chrome_profile_runs_root`; el sondeo en onboarding puede ponerla en `true` si detecta la cola PKP (`access.tickets.fifa.com/.../selectqueue.do`) con texto de acceso restringido.
+    - «Limpiar y usar nuevo perfil en Chrome»: termina procesos Chrome con `remote-debugging-port=9222`, borra y recrea la carpeta de `biting_lobster_chrome_profile` y deja `requires_new_chrome_profile` en `false`.
   - **Velocidad del Hunter (jitter):** en `config.yaml`, clave `hunter.speed` con valores `alta` | `media` | `baja` (por defecto **`baja`** en desarrollo). Cada valor define un rango de **retraso aleatorio uniforme entre pasos** (en segundos): `alta` 0.200–0.399 s, `media` 0.400–0.799 s, `baja` 0.800–1.200 s. Objetivo: no saturar el origen; la UI puede exponer el mismo control más adelante.
   Nota técnica: Gestión de variables de entorno (v1.0.0): Durante la primera versión, la aplicación utilizará exclusivamente el archivo local .env.dev para cargar secretos y parámetros sensibles (por ejemplo, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN).
   El archivo .env.dev es de uso local, no debe versionarse y debe estar excluido en .gitignore.
@@ -69,7 +74,10 @@
   2. Jitter dinámico: intervalos de refresco entre pasos con **retraso aleatorio uniforme** dentro de un rango definido por `hunter.speed` en `config.yaml` (`alta` / `media` / `baja`; por defecto `baja` en desarrollo) para moderar la presión sobre el origen y reducir patrones rígidos.
   3. Auto-Carting: Al detectar disponibilidad, el script ejecuta un click simulado con coordenadas aleatorias dentro del botón "Add to Cart" para humanizar la interacción.
   4. URLS relevantes:
-    - URL inicial: https://fwc26-shop-mex.tickets.fifa.com/secured/content en esta se debe hacer click en el botón "Comprar boletos" ejemplo: <a class="sc-TOsTZ FeKdn sc-gqjmRU g-Button g-Button-small g-Button-primary gaYhxh" href="https://fwc26-shop-mex.tickets.fifa.com/secured/selection/event/date?productId=10229225515651&amp;gtmStepTracking=true" aria-label="COMPRAR BOLETOS Copa Mundial de la FIFA 2026™"><span>COMPRAR BOLETOS</span></a>
+    - URL inicial: `https://fwc26-shop-mex.tickets.fifa.com/secured/content`; flujo natural con clic en **Comprar boletos** hacia selección de fechas. FIFA puede servir enlaces con `/secure/` o `/secured/` y `selection/event/date` en el `href` (con `productId` en query o `/product/<id>/` en path).
+    - **Headless / DOM:** el primer `<a>` que coincida por texto puede ser un `role="menuitem"` oculto hacia `/secured/content` (menú). El Hunter prioriza enlaces **visibles** cuyo `href` indique pantalla de fechas; si no hay CTA clicable, hace **`goto`** a la URL canónica del listado (`match_list_url`) y registra el motivo en log.
+    - **Criterio obligatorio:** `search_criteria.target_teams` no puede estar vacío; si el onboarding se guardó sin equipo (o la lista se borró en YAML), `run_hunter` falla de forma explícita antes de elegir fila en `li.performance`.
+    - Ejemplo histórico de CTA (referencia): botón "Comprar boletos" con `href` a `.../secured/selection/event/date?productId=...` y clases tipo `g-Button-primary`.
     - Paises: <select id="team" autocomplete="off">
 							<option value="">Cualquier equipo</option>
 							<option value="11404606582">Alemania</option>
@@ -128,6 +136,7 @@
 - **Formateo de UI:** Conversión de Precios: Funciones de utilidad en core/utils/ para parsear Strings de la web de FIFA (ej. "USD 40.00") a Int (4000).
 
 ## 5. Error Handling and Edge Cases
+- **Restricción temporal FIFA (cola / anti-bot):** mensajes tipo «acceso restringido» en `access.tickets.fifa.com` pueden depender de perfil, IP, ritmo y sesiones paralelas; borrar y recrear la carpeta del perfil CDP dedicado ha mostrado alivio en pruebas, **sin garantía** de solución definitiva ni de duración del bloqueo.
 - **Baneos de IP/Shadowban:** 
   - *Edge Case:* La página devuelve 403 o pide Captcha constante.
   - *Solución:* El HunterService pausa el monitoreo, emite un ErrorState a la UI y notifica vía Telegram para que el usuario resuelva el Captcha manualmente en el navegador asistido.

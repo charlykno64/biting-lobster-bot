@@ -54,7 +54,7 @@ Se requiere de una aplicación automática y semi autonoma que, mediante paramet
 
 ## 5. Requerimientos Funcionales (MoSCoW)
 **Must Have (Obligatorio para el POC):**
-- Flujo de onboarding (Instrucciones, apertura del Browser para asistir el Login, configuracion de criterios de busqueda de boletos de interes, guias para configurar de nuevo estos valores).
+- Flujo de onboarding (Instrucciones, apertura del Browser para asistir el Login, configuracion de criterios de busqueda de boletos de interes, guias para configurar de nuevo estos valores). El criterio de **equipo(s) objetivo** debe persistirse de forma no vacía en `config.yaml` (`search_criteria.target_teams`); sin ello el motor de cacería no puede elegir partido en el listado.
 - Home (Pantalla principal donde se muestra la actividad de la aplicación, opciones para detener y arrancar, configurarla y visualización de los boletos que puede conseguir gratis (1)).
 - Modulo para conseguir más boletos dando un donativo (solo puede conseguir 1 más como máximo o pagando  para conseguir 10 adicionales como máximo) pero siempre el total es 40 como máximo por usuario.
 - Pasarela de Pago (Checkout) usando Ads de video, Buyme a Coffe, Paypal o integraciones nativas.
@@ -118,6 +118,7 @@ Otros requerimientos:
   
 
 ## 8. Riesgos, Supuestos y Dependencias
+- **Riesgo (FIFA / infraestructura):** la tienda puede mostrar restricciones temporales o colas PKP; la causa exacta no siempre es observable desde el cliente. Operativamente, un perfil Chrome CDP aislado recreado ha permitido continuar en pruebas puntuales, pero no constituye garantía frente a políticas o límites del lado FIFA.
 - **Riesgo:** Algún posible infringimiento de alguna ley lo cual hay que evitar pero al mismo tiempo brindar la posibilidad a las personas de conseguir sus boletos ya que hay muchas personas que por su trabajo no pueden estar esperando o buscando todo el día y los acaparadores y revendedores aprovechan esta situación por ello los limites sanos de uso y de ganancia de esta app. Cuando se consiga ayudar a las personas y se consigan los ingresos previstos se habrá cumplido el ciclo de esta aplicación.
 - **Dependencia:** Integración pagos (de las que tengan facilidad de integración coimo Buyme a Coffe, Paypal, Stripe, Crypto o APIs de pago), Monitoreo de errores similar a Crashlytics, API de Telegram para enviar notificaciones o alguna alternativa gratis, Analytics como los de Google o alguna alternativa gratis y simple ya que la aplicación no es compleja.
 - **Supuesto:** Los usuarios están dispuestos a realizar transacciones digitales para conseguir más boletos para familiares y amigos.
