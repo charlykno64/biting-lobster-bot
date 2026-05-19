@@ -3,6 +3,8 @@ config.yaml
 venv/
 env/
 session.json
+session_chrome_user_agent.txt
+session_snapshot_*.json
 config.yaml
 *.log
 *.pyc

@@ -159,6 +159,9 @@
 - **Integration Testing:** Mock de respuestas de red para asegurar que el HunterService dispara la acción de "Agregar al Carrito" correctamente ante un JSON positivo.
 - **UI Previews:** Implementación de modo debug en la UI para visualizar estados de "Boleto Encontrado" sin necesidad de conexión real.
 
+### Deuda técnica (Hunter / FIFA DOM)
+- **Filtro Hospitality y `skip_hospitality_filter`:** La heurística que descartaba filas por presencia de `a[href*="hospitality"]` (u homólogos) en toda la fila está **mal acoplada al DOM real**: varios partidos muestran a la vez CTA de entradas y de paquetes hospitality; enlaces secundarios o legales pueden contener esa subcadena y **anular filas válidas**. Mitigación actual: en `config.yaml` → `hunter.skip_hospitality_filter` por defecto **`true`** en código (no aplicar ese filtro). **Pendiente de diseño:** redefinir el filtro acotado al **único control de compra de entrada** (p. ej. selector del botón/enlace que abre la vista de asientos o tabla de categorías), o **eliminar** el filtro y confiar en que el flujo de clics ya evita el CTA de hospitality. Documentar en UI/onboarding si se expone la opción avanzada `skip_hospitality_filter: false`.
+
 ## 9. AI Agent Implementation Plan (Prompts by Epic & User Story & Tasks)
 - **Epic 1: Infraestructura Base y Captura de Sesión (Auth)**
   - Historias de Usuario cubiertas:

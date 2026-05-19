@@ -52,12 +52,32 @@ class ConfigRepository:
         except ValueError:
             return value
 
+    @staticmethod
+    def _next_nonblank_is_list_item(lines: list[str], start: int, parent_key_indent: int) -> bool:
+        """True si la primera línea con contenido tras start está más indentada que la clave y es un ítem `- `."""
+        for k in range(start, len(lines)):
+            raw = lines[k]
+            line = raw.rstrip()
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            child_indent = len(line) - len(line.lstrip(" "))
+            if child_indent <= parent_key_indent:
+                return False
+            return line.lstrip().startswith("- ")
+        return False
+
     def _parse_yaml_like(self, text: str) -> dict[str, Any]:
+        lines = text.splitlines()
         root: dict[str, Any] = {}
+        # (indent, dict donde se añaden pares clave/valor, clave bajo la cual hay lista o None)
         stack: list[tuple[int, dict[str, Any], str | None]] = [(-1, root, None)]
 
-        for raw_line in text.splitlines():
+        i = 0
+        while i < len(lines):
+            raw_line = lines[i]
             line = raw_line.rstrip()
+            li = i
+            i += 1
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
 
@@ -66,13 +86,14 @@ class ConfigRepository:
 
             while stack and indent <= stack[-1][0]:
                 stack.pop()
-            parent = stack[-1][1]
-            parent_key = stack[-1][2]
+
+            parent_dict = stack[-1][1]
 
             if stripped.startswith("- "):
                 item = self._parse_scalar(stripped[2:].strip())
-                if parent_key and isinstance(parent.get(parent_key), list):
-                    parent[parent_key].append(item)
+                _, container, lk = stack[-1]
+                if lk is not None and isinstance(container.get(lk), list):
+                    container[lk].append(item)
                 continue
 
             if ":" not in stripped:
@@ -83,15 +104,19 @@ class ConfigRepository:
             value_part = value_part.strip()
 
             if value_part == "":
-                parent[key] = {}
-                stack.append((indent, parent[key], key))
+                if self._next_nonblank_is_list_item(lines, li + 1, indent):
+                    parent_dict[key] = []
+                    stack.append((indent, parent_dict, key))
+                else:
+                    parent_dict[key] = {}
+                    stack.append((indent, parent_dict[key], None))
                 continue
 
             value = self._parse_scalar(value_part)
-            parent[key] = value
+            parent_dict[key] = value
 
             if isinstance(value, list):
-                stack.append((indent, parent, key))
+                stack.append((indent, parent_dict, key))
 
         return root
 

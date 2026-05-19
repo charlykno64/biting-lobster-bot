@@ -10,6 +10,10 @@ def validate_hunter_search_objective(config: dict[str, Any]) -> tuple[bool, str]
     """
     criteria = config.get("search_criteria") or {}
     raw_teams = criteria.get("target_teams")
+    if isinstance(raw_teams, str) and raw_teams.strip():
+        raw_teams = [raw_teams.strip()]
+    elif isinstance(raw_teams, int):
+        raw_teams = [str(raw_teams)]
     if not isinstance(raw_teams, list):
         return False, "search_criteria.target_teams debe ser una lista con al menos un ID de equipo."
     teams = [str(t).strip() for t in raw_teams if str(t).strip()]

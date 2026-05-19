@@ -16,6 +16,7 @@ import asyncio
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -43,19 +44,32 @@ async def _browser_smoke(session_path: Path, list_url: str, initial_delay_sec: f
         "AVISO: cierra Chrome de captura CDP antes del humo; no uses la misma URL en dos navegadores a la vez.",
         flush=True,
     )
-    print("Navegador: Stealth + Chromium headless + storage_state...", flush=True)
+    print("Navegador: Chromium headless + storage_state + playwright-stealth (post new_page)...", flush=True)
     print(f"URL lista partidos (domcontentloaded): {list_url[:120]}...", flush=True)
     if initial_delay_sec > 0:
         print(f"Pausa inicial {initial_delay_sec}s...", flush=True)
         await asyncio.sleep(initial_delay_sec)
-    async with Stealth().use_async(async_playwright()) as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            storage_state=str(session_path),
-            viewport={"width": 1360, "height": 900},
-            locale="es-MX",
+    ua_path = session_path.parent / f"{session_path.stem}_chrome_user_agent.txt"
+    ua = ua_path.read_text(encoding="utf-8").strip() if ua_path.is_file() else None
+    if ua:
+        print(f"User-Agent sidecar: {ua_path.name} ({len(ua)} caracteres)", flush=True)
+    stealth = Stealth(navigator_user_agent_override=ua) if ua else Stealth()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            ignore_default_args=["--enable-automation"],
+            args=["--disable-blink-features=AutomationControlled"],
         )
+        ctx_kw: dict[str, Any] = {
+            "storage_state": str(session_path),
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "es-MX",
+        }
+        if ua:
+            ctx_kw["user_agent"] = ua
+        context = await browser.new_context(**ctx_kw)
         page = await context.new_page()
+        await stealth.apply_stealth_async(page)
         body_lo = ""
         try:
             await page.goto(list_url, wait_until="domcontentloaded", timeout=90_000)

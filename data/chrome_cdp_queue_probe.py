@@ -15,9 +15,8 @@ RESTRICTION_BODY_MARKERS: Final[tuple[str, ...]] = (
 
 def detect_queue_restriction_via_cdp(cdp_endpoint: str = CDP_DEFAULT) -> bool:
     """
-    Devuelve True si hay una pestaña CDP en la cola PKP de FIFA y el cuerpo
-    indica acceso temporalmente restringido (misma condición que activa
-    app.requires_new_chrome_profile en config).
+    Devuelve True si alguna pestaña CDP muestra el texto de acceso restringido en cuerpo
+    y la URL es FIFA (cola PKP o tienda tickets). Usado para app.requires_new_chrome_profile.
     """
     try:
         with sync_playwright() as p:
@@ -26,7 +25,7 @@ def detect_queue_restriction_via_cdp(cdp_endpoint: str = CDP_DEFAULT) -> bool:
                 for ctx in browser.contexts:
                     for page in ctx.pages:
                         url = page.url.lower()
-                        if not _url_is_fifa_access_queue(url):
+                        if not _url_is_fifa_tickets_related(url):
                             continue
                         try:
                             body = page.locator("body").inner_text(timeout=6_000).lower()
@@ -37,6 +36,20 @@ def detect_queue_restriction_via_cdp(cdp_endpoint: str = CDP_DEFAULT) -> bool:
             finally:
                 browser.close()
     except Exception as exc:
+        err = str(exc).lower()
+        # Sin Chrome en 9222 es lo normal durante captura Firefox u onboarding sin CDP.
+        if any(
+            x in err
+            for x in (
+                "econnrefused",
+                "connection refused",
+                "failed to connect",
+                "connect error",
+                "websocket error",
+                "timeout",
+            )
+        ):
+            return False
         print(f"chrome_cdp_queue_probe: CDP no disponible o error: {exc}", file=sys.stderr, flush=True)
         return False
     return False
@@ -46,3 +59,10 @@ def _url_is_fifa_access_queue(url: str) -> bool:
     if "access.tickets.fifa.com" not in url:
         return False
     return any(m in url for m in ("pkpcontroller/selectqueue", "selectqueue.do"))
+
+
+def _url_is_fifa_tickets_related(url: str) -> bool:
+    """Cola PKP o dominio de tienda/reserva FIFA donde suele aparecer el muro de texto."""
+    if "tickets.fifa.com" in url or "access.tickets.fifa.com" in url:
+        return True
+    return _url_is_fifa_access_queue(url)
